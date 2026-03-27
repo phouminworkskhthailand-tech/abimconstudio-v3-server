@@ -12,7 +12,7 @@ body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-heig
 .topbar .right{margin-left:auto;display:flex;align-items:center;gap:12px}
 .container{max-width:1100px;margin:32px auto;padding:0 20px}
 #login-section{display:flex;justify-content:center;margin-top:80px}
-.login-card{background:#1e293b;border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.login-card{background:#1e293b;border-radius:h16px;padding:40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
 .login-card h2{color:#38bdf8;margin-bottom:24px;text-align:center;font-size:1.4rem}
 label{display:block;margin-bottom:6px;font-size:.85rem;color:#94a3b8}
 input[type=password],input[type=text],input[type=email],select{width:100%;padding:10px 14px;background:#0f172a;border:1.5px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.95rem;outline:none;transition:.2s}
@@ -159,7 +159,7 @@ async function doLogin() {
 
 async function showDash() {
   document.getElementById('login-section').style.display = 'none';
-  document.getElementById('dashboard-section').style.display = '';
+  document.getElementById('dashboard-section').style.display = 'block';
   document.getElementById('logout-btn').style.display = '';
   document.getElementById('admin-label').textContent = 'Admin';
   await loadAll();
