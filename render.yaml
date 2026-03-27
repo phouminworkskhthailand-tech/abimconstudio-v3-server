@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: abimconstudio-v3
+    runtime: python
+    buildCommand: "echo ready"
+    startCommand: "python3 server.py"
+    envVars:
+      - key: ADMIN_PASSWORD
+        value: abimcon_admin_2026
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DB_PATH
+        value: /tmp/abimcon_v3.db
+    healthCheckPath: /health

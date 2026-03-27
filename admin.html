@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AbimconStudio — License Manager</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.topbar{background:linear-gradient(135deg,#1e40af,#0ea5e9);padding:16px 28px;display:flex;align-items:center;gap:12px}
+.topbar h1{font-size:1.3rem;font-weight:700;color:#fff}
+.topbar .right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.container{max-width:1100px;margin:32px auto;padding:0 20px}
+#login-section{display:flex;justify-content:center;margin-top:80px}
+.login-card{background:#1e293b;border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.login-card h2{color:#38bdf8;margin-bottom:24px;text-align:center;font-size:1.4rem}
+label{display:block;margin-bottom:6px;font-size:.85rem;color:#94a3b8}
+input[type=password],input[type=text],input[type=email],select{width:100%;padding:10px 14px;background:#0f172a;border:1.5px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.95rem;outline:none;transition:.2s}
+input:focus,select:focus{border-color:#38bdf8}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:600;transition:.15s}
+.btn-primary{background:linear-gradient(135deg,#1e40af,#0ea5e9);color:#fff}
+.btn-primary:hover{opacity:.88}
+.btn-danger{background:#ef4444;color:#fff;padding:5px 11px;font-size:.8rem}
+.btn-danger:hover{background:#dc2626}
+.btn-success{background:#22c55e;color:#fff;padding:5px 11px;font-size:.8rem}
+.btn-sm{background:#334155;color:#e2e8f0;padding:5px 11px;font-size:.8rem}
+.btn-sm:hover{background:#475569}
+.btn-logout{background:rgba(255,255,255,.15);border:none;color:#fff;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.85rem}
+.btn-logout:hover{background:rgba(255,255,255,.25)}
+.form-group{margin-bottom:16px}
+#dashboard-section{display:none}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:28px}
+.stat{background:#1e293b;border-radius:12px;padding:20px;text-align:center}
+.stat .num{font-size:2rem;font-weight:700;color:#38bdf8}
+.stat .lbl{font-size:.78rem;color:#64748b;margin-top:4px}
+.card{background:#1e293b;border-radius:12px;padding:24px;margin-bottom:24px}
+.card h3{color:#38bdf8;margin-bottom:18px;font-size:1rem}
+.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.toolbar input{flex:1;min-width:180px}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{background:#0f172a;padding:10px 12px;text-align:left;color:#64748b;font-weight:600;text-transform:uppercase;font-size:.73rem;letter-spacing:.05em}
+td{padding:10px 12px;border-bottom:1px solid #1e293b}
+tr:hover td{background:#162032}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
+.b-active{background:#14532d;color:#4ade80}
+.b-suspended{background:#450a0a;color:#f87171}
+.b-admin{background:#1e3a5f;color:#60a5fa}
+.b-editor{background:#14532d;color:#4ade80}
+.b-viewer{background:#3f2a00;color:#fbbf24}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;justify-content:center;align-items:center}
+.modal-overlay.show{display:flex}
+.modal{background:#1e293b;border-radius:16px;padding:32px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal h3{color:#38bdf8;margin-bottom:20px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.alert{padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:.88rem;display:none}
+.alert-error{background:#450a0a;color:#f87171;border:1px solid #7f1d1d}
+.alert-success{background:#14532d;color:#4ade80;border:1px solid #166534}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <svg width="28" height="28" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".15"/><path d="M8 22 L16 10 L24 22" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="10" r="2.5" fill="#38bdf8"/></svg>
+  <h1>AbimconStudio — License Manager</h1>
+  <div class="right">
+    <span id="admin-label" style="font-size:.85rem;color:#bfdbfe;opacity:.9"></span>
+    <button class="btn-logout" id="logout-btn" style="display:none" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<!-- Login -->
+<div id="login-section">
+  <div class="login-card">
+    <h2>&#128274; Admin Login</h2>
+    <div id="login-err" class="alert alert-error"></div>
+    <div class="form-group">
+      <label>Admin Password</label>
+      <input type="password" id="admin-pass" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="doLogin()">Login</button>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard-section">
+  <div class="container">
+    <div class="stats">
+      <div class="stat"><div class="num" id="s-total">-</div><div class="lbl">Total Licenses</div></div>
+      <div class="stat"><div class="num" id="s-active">-</div><div class="lbl">Active</div></div>
+      <div class="stat"><div class="num" id="s-suspended">-</div><div class="lbl">Suspended</div></div>
+      <div class="stat"><div class="num" id="s-logins">-</div><div class="lbl">Total Logins (SketchUp)</div></div>
+    </div>
+
+    <div class="card">
+      <h3>&#128273; License Accounts</h3>
+      <div class="toolbar">
+        <input type="text" id="search" placeholder="Search by name, email, key…" oninput="filterTable()">
+        <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
+      </div>
+      <div id="tbl-err" class="alert alert-error"></div>
+      <div id="tbl-ok"  class="alert alert-success"></div>
+      <div style="overflow-x:auto">
+        <table><thead><tr>
+          <th>#</th><th>Name</th><th>Gmail</th><th>License Key</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th>
+        </tr></thead><tbody id="lic-body"></tbody></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>&#128196; Recent Activity (last 20)</h3>
+      <div style="overflow-x:auto">
+        <table><thead><tr><th>Time</th><th>Gmail</th><th>Action</th><th>Result</th><th>IP</th></tr></thead>
+        <tbody id="log-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-ov">
+  <div class="modal">
+    <h3 id="modal-title">Add Account</h3>
+    <div id="modal-err" class="alert alert-error"></div>
+    <input type="hidden" id="m-id">
+    <div class="form-group"><label>Full Name</label><input type="text" id="m-name" placeholder="e.g. John Doe"></div>
+    <div class="form-group"><label>Gmail Address</label><input type="email" id="m-gmail" placeholder="user@gmail.com"></div>
+    <div class="form-group"><label>License Key</label><input type="text" id="m-key" placeholder="ABIM-XXXX-XXXX-XXXX"></div>
+    <div class="form-group"><label>Role</label>
+      <select id="m-role"><option value="editor">Editor</option><option value="admin">Admin</option><option value="viewer">Viewer</option></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAccount()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOKEN = localStorage.getItem('abimcon_tok') || '';
+let licenses = [];
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
+  if (body)  opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
+}
+
+async function doLogin() {
+  const pass = document.getElementById('admin-pass').value.trim();
+  if (!pass) { showEl('login-err', 'Enter your password'); return; }
+  const { ok, data } = await api('POST', '/api/admin/login', { password: pass });
+  if (!ok) { showEl('login-err', data.error || 'Invalid password'); return; }
+  TOKEN = data.token;
+  localStorage.setItem('abimcon_tok', TOKEN);
+  showDash();
+}
+
+async function showDash() {
+  document.getElementById('login-section').style.display = 'none';
+  document.getElementById('dashboard-section').style.display = '';
+  document.getElementById('logout-btn').style.display = '';
+  document.getElementById('admin-label').textContent = 'Admin';
+  await loadAll();
+}
+
+async function loadAll() { await loadLicenses(); await loadLogs(); }
+
+async function loadLicenses() {
+  const { ok, data, status } = await api('GET', '/api/admin/licenses');
+  if (!ok) { if (status === 401) logout(); return; }
+  licenses = data.licenses || [];
+  document.getElementById('s-total').textContent     = data.total     ?? licenses.length;
+  document.getElementById('s-active').textContent    = data.active    ?? licenses.filter(l=>l.active).length;
+  document.getElementById('s-suspended').textContent = data.suspended ?? licenses.filter(l=>!l.active).length;
+  document.getElementById('s-logins').textContent    = data.total_logins ?? '-';
+  renderTable(licenses);
+}
+
+async function loadLogs() {
+  const { ok, data } = await api('GET', '/api/admin/logs');
+  if (!ok) return;
+  document.getElementById('log-body').innerHTML = (data.logs || []).map(l => `
+    <tr>
+      <td style="font-size:.8rem;color:#64748b">${(l.created_at||'').replace('T',' ').substring(0,19)}</td>
+      <td>${esc(l.gmail||'')}</td>
+      <td>${l.action||''}</td>
+      <td>${l.success ? '<span class="badge b-active">OK</span>' : '<span class="badge b-suspended">FAIL</span>'}</td>
+      <td style="font-size:.8rem;color:#64748b">${l.ip_addr||''}</td>
+    </tr>`).join('');
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById('lic-body');
+  if (!rows.length) { tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:#475569;padding:24px">No accounts found</td></tr>'; return; }
+  tbody.innerHTML = rows.map((l,i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td>${esc(l.name)}</td>
+      <td>${esc(l.gmail)}</td>
+      <td><code style="color:#38bdf8;font-size:.82rem">${esc(l.license_key)}</code></td>
+      <td><span class="badge b-${l.role}">${l.role}</span></td>
+      <td><span class="badge b-${l.active?'active':'suspended'}">${l.active?'Active':'Suspended'}</span></td>
+      <td style="font-size:.8rem;color:#64748b">${l.last_login ? l.last_login.replace('T',' ').substring(0,16) : 'Never'}</td>
+      <td style="white-space:nowrap;display:flex;gap:4px">
+        <button class="btn btn-sm" onclick="openEdit('${l.id}')">Edit</button>
+        <button class="btn ${l.active?'btn-danger':'btn-success'}" onclick="toggle('${l.id}',${!l.active})">${l.active?'Suspend':'Activate'}</button>
+        <button class="btn btn-danger" onclick="del('${l.id}')">Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  renderTable(q ? licenses.filter(l => (l.name+l.gmail+l.license_key).toLowerCase().includes(q)) : licenses);
+}
+
+function openAdd() {
+  document.getElementById('modal-title').textContent = 'Add Account';
+  document.getElementById('m-id').value = '';
+  ['m-name','m-gmail','m-key'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('m-role').value = 'editor';
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('modal-ov').classList.add('show');
+}
+
+function openEdit(id) {
+  const l = licenses.find(x => x.id === id); if (!l) return;
+  document.getElementById('modal-title').textContent = 'Edit Account';
+  document.getElementById('m-id').value    = l.id;
+  document.getElementById('m-name').value  = l.name;
+  document.getElementById('m-gmail').value = l.gmail;
+  document.getElementById('m-key').value   = l.license_key;
+  document.getElementById('m-role').value  = l.role;
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('modal-ov').classList.add('show');
+}
+
+function closeModal() { document.getElementById('modal-ov').classList.remove('show'); }
+
+async function saveAccount() {
+  const id    = document.getElementById('m-id').value;
+  const name  = document.getElementById('m-name').value.trim();
+  const gmail = document.getElementById('m-gmail').value.trim().toLowerCase();
+  const key   = document.getElementById('m-key').value.trim().toUpperCase();
+  const role  = document.getElementById('m-role').value;
+  if (!name||!gmail||!key) { showEl('modal-err','All fields required'); return; }
+  const method = id ? 'PUT' : 'POST';
+  const path   = id ? `/api/admin/licenses/${id}` : '/api/admin/licenses';
+  const { ok, data } = await api(method, path, { name, gmail, license_key: key, role });
+  if (!ok) { showEl('modal-err', data.error||'Save failed'); return; }
+  closeModal();
+  flash('tbl-ok','Account saved successfully.');
+  loadLicenses();
+}
+
+async function toggle(id, newState) {
+  const { ok, data } = await api('PUT', `/api/admin/licenses/${id}`, { active: newState });
+  if (!ok) { flash('tbl-err', data.error||'Update failed'); return; }
+  flash('tbl-ok', newState ? 'Account activated.' : 'Account suspended.');
+  loadLicenses();
+}
+
+async function del(id) {
+  if (!confirm('Delete this account? This cannot be undone.')) return;
+  const { ok, data } = await api('DELETE', `/api/admin/licenses/${id}`);
+  if (!ok) { flash('tbl-err', data.error||'Delete failed'); return; }
+  flash('tbl-ok','Account deleted.');
+  loadLicenses();
+}
+
+function showEl(id, msg)  { const e=document.getElementById(id); e.textContent=msg; e.style.display=''; }
+function flash(id, msg)   { const e=document.getElementById(id); e.textContent=msg; e.style.display=''; setTimeout(()=>e.style.display='none',3000); }
+function esc(s)           { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function logout() {
+  TOKEN = ''; localStorage.removeItem('abimcon_tok');
+  document.getElementById('login-section').style.display = '';
+  document.getElementById('dashboard-section').style.display = 'none';
+  document.getElementById('logout-btn').style.display = 'none';
+  document.getElementById('admin-label').textContent = '';
+}
+
+if (TOKEN) {
+  api('GET','/api/admin/verify').then(({ok})=> ok ? showDash() : logout());
+}
+</script>
+</body>
+</html>
