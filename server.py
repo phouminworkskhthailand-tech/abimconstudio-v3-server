@@ -170,6 +170,26 @@ def init_db():
                 (str(uuid.uuid4()), gmail, key, name, role, plan, max_dev, ddl, expiry, now)
             )
 
+    # ── Seed models ───────────────────────────────────────────────────────────
+    c.execute("SELECT COUNT(*) FROM models")
+    if c.fetchone()[0] == 0:
+        now_m = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        model_seeds = [
+            ("Tle Jirayut",            "models/Tle_Jirayut_.skp",           "free", "Architecture", "thai,house,residential",   "Thai residential architecture model by Tle Jirayut", 66.6),
+            ("Ray Thai Architecture",  "models/ray_Thai_architecture.skp",  "free", "Architecture", "thai,architecture,house",   "Thai architecture reference model",                 17.6),
+            ("Sutichai Pluemthanom",   "models/_Sutichai_Pluemthanom.skp", "free", "Architecture", "thai,house,residential",   "Residential model by Sutichai Pluemthanom",          27.2),
+            ("\u0e04\u0e21\u0e01\u0e23\u0e34\u0e0a \u0e1e\u0e31\u0e19\u0e42\u0e01\u0e0e\u0e34",  "models/\u0e04\u0e21\u0e01\u0e23\u0e34\u0e0a_\u0e1e\u0e31\u0e19\u0e42\u0e01\u0e0e\u0e34.skp", "free", "Architecture", "thai,house",               "Thai house model",                                  32.5),
+            ("\u0e41\u0e1a\u0e1a\u0e1a\u0e49\u0e32\u0e19 GHB 102", "models/\u0e41\u0e1a\u0e1a\u0e1a\u0e49\u0e32\u0e19_GHB_102.skp", "free", "Architecture", "thai,house,GHB,floor plan", "GHB floor plan model 102",                          13.9),
+        ]
+        for m_name, r2_path, plan_req, category, tags, desc, fsz in model_seeds:
+            c.execute(
+                "INSERT INTO models "
+                "(model_id,name,r2_path,is_premium,file_size,description,created_at,"
+                "category,tags,plan_required,file_size_mb,active) "
+                "VALUES (?,?,?,0,0,?,?,?,?,?,?,1)",
+                (str(uuid.uuid4()), m_name, r2_path, desc, now_m, category, tags, plan_req, fsz)
+            )
+
     conn.commit()
     conn.close()
     print(f"[DB] Initialised at {DB_PATH}")
@@ -480,7 +500,7 @@ class Handler(BaseHTTPRequestHandler):
 
         conn = get_db()
 
-        # ── Re-verify license is still active & not expired ─────────────────
+        # ── Re-verify license is still active & not expired ────────────────
         lic = conn.execute("SELECT * FROM licenses WHERE id=? AND active=1", (lid,)).fetchone()
         if not lic:
             conn.close()
