@@ -555,23 +555,49 @@ class Handler(BaseHTTPRequestHandler):
                 "used":  today_count,
             }); return
 
-        # ââ Get model ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-        model = conn.execute("SELECT * FROM models WHERE model_id=?", (model_id,)).fetchone()
-        if not model:
-            conn.close()
-            self._json(404, {"ok": False, "error": "Model not found."}); return
+        # ââ Resolve model â R2 path & bucket âââââââââââââââââââââââââââââââââ
+        # model_id can be either:
+        #   (a) A raw R2 path from abimcon-assets  e.g. "SN/house.skp"
+        #   (b) A legacy DB UUID from abimcon-models
+        r2_key    = None
+        r2_bucket = R2_BUCKET_NAME
+        model_name = model_id  # fallback display name
 
-        # ââ Premium model check ââââââââââââââââââââââââââââââââââââââââââââââ
-        if model["is_premium"] and lic["plan_type"] == "free":
-            conn.close()
-            self._json(403, {
-                "ok":    False,
-                "error": "This model requires a Pro plan. Please upgrade.",
-                "code":  "PLAN_REQUIRED"
-            }); return
+        if "/" in model_id or model_id.lower().endswith(".skp"):
+            # ââ Direct R2 path (abimcon-assets dynamic scan) ââââââââââââââ
+            r2_key    = model_id
+            r2_bucket = R2_ASSETS_BUCKET
+            base_filename = model_id.split("/")[-1]
+            model_name = base_filename[:-4] if base_filename.lower().endswith(".skp") else base_filename
+            # Plan check: folders named "pro" require pro plan
+            folder = model_id.split("/")[0] if "/" in model_id else ""
+            if folder.lower() == "pro" and lic["plan_type"] != "pro":
+                conn.close()
+                self._json(403, {
+                    "ok": False,
+                    "error": "This model requires a Pro plan. Please upgrade.",
+                    "code": "PLAN_REQUIRED"
+                }); return
+        else:
+            # ââ Legacy DB lookup (abimcon-models bucket) ââââââââââââââââââ
+            model = conn.execute("SELECT * FROM models WHERE model_id=?", (model_id,)).fetchone()
+            if not model:
+                conn.close()
+                self._json(404, {"ok": False, "error": "Model not found."}); return
+            keys = model.keys()
+            model_plan = model["plan_required"] if "plan_required" in keys else ("pro" if model["is_premium"] else "free")
+            if model_plan == "pro" and lic["plan_type"] != "pro":
+                conn.close()
+                self._json(403, {
+                    "ok": False, "error": "This model requires a Pro plan. Please upgrade.",
+                    "code": "PLAN_REQUIRED"
+                }); return
+            r2_key    = model["r2_path"]
+            r2_bucket = R2_BUCKET_NAME
+            model_name = model["name"]
 
         # ââ Generate signed URL ââââââââââââââââââââââââââââââââââââââââââââââ
-        signed_url = generate_r2_signed_url(model["r2_path"])
+        signed_url = generate_r2_signed_url(r2_key, bucket=r2_bucket)
         if not signed_url:
             conn.close()
             self._json(503, {"ok": False, "error": "Download service unavailable. R2 not configured."}); return
@@ -588,9 +614,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {
             "ok":         True,
             "url":        signed_url,
-            "filename":   model["name"] + ".skp",
+            "filename":   model_name + ".skp",
             "expires_in": R2_SIGNED_URL_TTL,
-            "model_name": model["name"],
+            "model_name": model_name,
             "used_today": today_count + 1,
             "limit_today": daily_limit,
         })
@@ -838,7 +864,7 @@ class Handler(BaseHTTPRequestHandler):
 
         conn = get_db()
 
-        # ââ HWID: register new devices, enforce device limit ââââââââââââââââ
+        # ââ HWID: register new devices, enforce device limit âââââââââââââââââ
         if hwid:
             hw_rows = conn.execute(
                 "SELECT hwid FROM registered_hwids WHERE license_id=?", (lid,)
@@ -926,27 +952,77 @@ class Handler(BaseHTTPRequestHandler):
     # Requires: Authorization: Bearer <session_token>
     # Returns models filtered by the user's plan (free sees free only, pro sees all).
     def _get_user_models(self):
+        """
+        GET /api/models
+        Requires: Authorization: Bearer <session_token>
+
+        Dynamically scans the abimcon-assets R2 bucket.
+        Every sub-folder becomes a Category.  All .skp files inside are
+        returned as models.  Thumbnails are expected at the same path but
+        with a .jpg or .png extension (signed URL is generated; the
+        front-end onerror fallback handles missing ones gracefully).
+        """
         payload = self._require_auth()
         if not payload: return
         plan = payload.get("plan", "free")
-        conn = get_db()
-        if plan == "pro":
-            rows = conn.execute(
-                "SELECT model_id, name, description, category, tags, thumbnail, "
-                "file_size_mb, plan_required FROM models WHERE active=1 ORDER BY category, name"
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT model_id, name, description, category, tags, thumbnail, "
-                "file_size_mb, plan_required FROM models WHERE active=1 AND plan_required='free' ORDER BY category, name"
-            ).fetchall()
-        conn.close()
-        models_out = []
-        for r in rows:
-            d = dict(r)
-            d["thumbnail"] = _sign_thumbnail(d.get("thumbnail", ""))
-            models_out.append(d)
-        self._json(200, {"ok": True, "plan": plan, "models": models_out})
+
+        if not HAS_BOTO3 or not all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]):
+            self._json(503, {"ok": False, "error": "R2 not configured on server."}); return
+
+        try:
+            s3 = boto3.client(
+                "s3",
+                endpoint_url          = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+                aws_access_key_id     = R2_ACCESS_KEY_ID,
+                aws_secret_access_key = R2_SECRET_ACCESS_KEY,
+                config                = BotoConfig(signature_version="s3v4"),
+                region_name           = "auto",
+            )
+
+            models_out = []
+            paginator  = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=R2_ASSETS_BUCKET):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    # Only .skp files; skip folder marker objects
+                    if not key.lower().endswith(".skp") or key.endswith("/"):
+                        continue
+
+                    parts    = key.split("/")
+                    category = parts[0] if len(parts) > 1 else "General"
+                    filename = parts[-1]
+                    name     = filename[:-4]   # strip .skp extension
+
+                    # Folders named "pro" (case-insensitive) â pro-only models
+                    plan_required = "pro" if category.lower() == "pro" else "free"
+
+                    # Free users don't see pro-only models
+                    if plan_required == "pro" and plan != "pro":
+                        continue
+
+                    # Thumbnail: same path but .jpg or .png
+                    base_key  = key[:-4]
+                    thumb_url = (generate_r2_signed_url(base_key + ".jpg", ttl=3600, bucket=R2_ASSETS_BUCKET) or
+                                 generate_r2_signed_url(base_key + ".png", ttl=3600, bucket=R2_ASSETS_BUCKET) or "")
+
+                    models_out.append({
+                        "model_id":      key,           # R2 path used as unique ID
+                        "name":          name,
+                        "category":      category,
+                        "thumbnail":     thumb_url,
+                        "file_size_mb":  round(obj["Size"] / 1048576, 1),
+                        "plan_required": plan_required,
+                        "tags":          category.lower(),
+                        "description":   "",
+                    })
+
+            # Sort by category then name
+            models_out.sort(key=lambda m: (m["category"].lower(), m["name"].lower()))
+            self._json(200, {"ok": True, "plan": plan, "models": models_out})
+
+        except Exception as e:
+            print(f"[R2] list_objects error: {e}")
+            self._json(500, {"ok": False, "error": f"R2 scan failed: {e}"})
 
     # ââ Model Admin Handlers ââââââââââââââââââââââââââââââââââââââââââââââââââ
     # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
