@@ -1,1 +1,1 @@
-# Pure Python stdlib — no pip packages needed
+boto3==1.34.0
