@@ -13,10 +13,68 @@ New in v3:
   - Admin: model CRUD, reset daily count, expiry management
 """
 
-import os, sys, json, sqlite3, hmac, hashlib, base64, time, re, uuid
+import os, sys, json, sqlite3, hmac, hashlib, base64, time, re, uuid, threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timezone, timedelta
+
+# ── Input validation regexes ───────────────────────────────────────────────────
+_GMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+_KEY_RE   = re.compile(r'^ABIM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+
+# ── In-memory rate limiter ─────────────────────────────────────────────────────
+_rl_lock   = threading.Lock()
+_rl_store  = {}   # ip -> {attempts, window_start, locked_until}
+_RL_MAX    = 5    # max attempts per window
+_RL_WINDOW = 60   # seconds per window
+_RL_LOCK   = 300  # lockout duration (5 min); escalates to 1 hour after 15 total
+
+def _rl_check(ip: str) -> bool:
+    """Return True if request is allowed; False if rate-limited."""
+    now = time.time()
+    with _rl_lock:
+        r = _rl_store.get(ip, {"attempts": 0, "window_start": now, "locked_until": 0, "total": 0})
+        if now < r.get("locked_until", 0):
+            return False
+        if now - r.get("window_start", now) > _RL_WINDOW:
+            r = {"attempts": 0, "window_start": now, "locked_until": 0, "total": r.get("total", 0)}
+        r["attempts"] = r.get("attempts", 0) + 1
+        r["total"]    = r.get("total", 0) + 1
+        if r["attempts"] >= _RL_MAX:
+            lockout = 3600 if r["total"] >= 15 else _RL_LOCK
+            r["locked_until"] = now + lockout
+            _rl_store[ip] = r
+            return False
+        _rl_store[ip] = r
+        return True
+
+def _rl_reset(ip: str):
+    with _rl_lock:
+        _rl_store.pop(ip, None)
+
+# ── Challenge / nonce store ────────────────────────────────────────────────────
+_nc_lock  = threading.Lock()
+_nc_store = {}   # nonce -> expiry_timestamp
+_NC_TTL   = 45   # seconds a nonce is valid
+
+def _nc_create() -> str:
+    nonce = base64.urlsafe_b64encode(os.urandom(18)).decode().rstrip("=")
+    now   = time.time()
+    with _nc_lock:
+        _nc_store[nonce] = now + _NC_TTL
+        # Purge stale nonces
+        stale = [k for k, v in list(_nc_store.items()) if v < now]
+        for k in stale:
+            del _nc_store[k]
+    return nonce
+
+def _nc_consume(nonce: str) -> bool:
+    """Returns True and removes nonce if valid; False otherwise (one-use)."""
+    now = time.time()
+    with _nc_lock:
+        exp = _nc_store.pop(nonce, None)
+    return exp is not None and exp > now
+
 
 # ── boto3 for Cloudflare R2 signed URLs ────────────────────────────────────────
 try:
@@ -342,6 +400,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if   path == "/":                         self._html(200, ADMIN_HTML)
         elif path == "/health":                   self._json(200, {"status": "ok"})
+        elif path == "/api/challenge":
+            nonce = _nc_create()
+            self._json(200, {"nonce": nonce, "ttl": _NC_TTL})
         elif path == "/api/admin/verify":
             p = self._require_admin()
             if p: self._json(200, {"ok": True})
@@ -408,12 +469,41 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"token": token})
 
     def _validate_license(self):
+        client_ip = self._get_client_ip()
+
+        # ── Rate limiting ────────────────────────────────────────────────────────
+        if not _rl_check(client_ip):
+            self._log_activity("?", "rate_limited", False)
+            self._json(429, {
+                "ok": False,
+                "error": "Too many failed attempts. Please wait 5 minutes before trying again.",
+                "code": "RATE_LIMITED"
+            }); return
+
         body  = self._body()
         gmail = body.get("gmail", "").strip().lower()
         key   = body.get("license_key", "").strip()
         hwid  = body.get("hwid", "").strip()
+        nonce = body.get("nonce", "").strip()
+
+        # ── Input validation ─────────────────────────────────────────────────────
         if not gmail or not key:
             self._json(400, {"ok": False, "error": "Missing credentials"}); return
+        if not _GMAIL_RE.match(gmail):
+            self._json(400, {"ok": False, "error": "Invalid email format"}); return
+        if not _KEY_RE.match(key):
+            self._json(400, {"ok": False, "error": "Invalid license key format"}); return
+
+        # ── Challenge-response nonce verification ────────────────────────────────
+        # If a nonce was provided, it must be valid (prevents replay attacks).
+        # If no nonce provided, allow through for backward compatibility with
+        # older clients — once all clients are updated, make this mandatory.
+        if nonce and not _nc_consume(nonce):
+            self._json(400, {
+                "ok": False,
+                "error": "Invalid or expired security challenge. Please try again.",
+                "code": "NONCE_INVALID"
+            }); return
 
         conn = get_db()
         row  = conn.execute(
@@ -467,6 +557,7 @@ class Handler(BaseHTTPRequestHandler):
         conn.execute("UPDATE licenses SET last_login=? WHERE id=?", (now_ts, row["id"]))
         conn.commit(); conn.close()
         self._log_activity(gmail, "sketchup_login", True, hwid)
+        _rl_reset(client_ip)  # Clear rate limit counter on successful login
 
         session_token = make_token(
             {"sub": gmail, "role": row["role"], "lid": row["id"], "plan": row["plan_type"]},
@@ -1076,13 +1167,23 @@ class Handler(BaseHTTPRequestHandler):
         if not self._require_admin(): return
         body = self._body()
         fields, vals = [], []
-        for col in ("name", "r2_path", "description"):
+        for col in ("name", "r2_path", "description", "category", "tags", "thumbnail"):
             if col in body:
-                fields.append(f"{col}=?"); vals.append(body[col].strip())
+                fields.append(f"{col}=?"); vals.append(body[col].strip() if body[col] else "")
         if "is_premium" in body:
-            fields.append("is_premium=?"); vals.append(1 if body["is_premium"] else 0)
+            ip = 1 if body["is_premium"] else 0
+            fields.append("is_premium=?"); vals.append(ip)
+            # Sync plan_required with is_premium if not explicitly provided
+            if "plan_required" not in body:
+                fields.append("plan_required=?"); vals.append("pro" if ip else "free")
+        if "plan_required" in body:
+            fields.append("plan_required=?"); vals.append(body["plan_required"] or "free")
         if "file_size" in body:
             fields.append("file_size=?"); vals.append(int(body["file_size"]))
+        if "file_size_mb" in body:
+            fields.append("file_size_mb=?"); vals.append(float(body["file_size_mb"] or 0))
+        if "active" in body:
+            fields.append("active=?"); vals.append(1 if body["active"] else 0)
         if not fields:
             self._json(400, {"error": "Nothing to update"}); return
         vals.append(mid)
