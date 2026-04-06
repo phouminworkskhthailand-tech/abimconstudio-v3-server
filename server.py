@@ -396,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── GET ─────────────────────────────────────────────────────────────────────
     def do_GET(self):
-     (  path = urlparse(self.path).path.rstrip("/") or "/"
+        path = urlparse(self.path).path.rstrip("/") or "/"
 
         if   path == "/":                         self._html(200, ADMIN_HTML)
         elif path == "/health":                   self._json(200, {"status": "ok"})
