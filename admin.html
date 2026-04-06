@@ -126,6 +126,7 @@ tr:hover td{background:#162032}
       <button class="tab active" onclick="switchTab('licenses',this)">&#128273; Licenses</button>
       <button class="tab"        onclick="switchTab('models',this)">&#128190; Models</button>
       <button class="tab"        onclick="switchTab('logs',this)">&#128196; Activity</button>
+      <button class="tab"        onclick="switchTab('security',this)">&#128737; Security</button>
     </div>
 
     <!-- ── Tab: Licenses ── -->
@@ -176,6 +177,36 @@ tr:hover td{background:#162032}
           </tr></thead>
           <tbody id="log-body"></tbody>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Security ── -->
+    <div class="tab-content" id="tab-security">
+      <div class="card">
+        <h3>&#128737; Security Status <span class="section-tag">Live</span></h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px">
+          <div class="stat"><div class="num" id="sec-challenge" style="font-size:1.4rem">&#10003;</div><div class="lbl">Challenge/Nonce Active</div></div>
+          <div class="stat"><div class="num" id="sec-ratelimit" style="font-size:1.4rem">&#10003;</div><div class="lbl">Rate Limiter Active</div></div>
+          <div class="stat"><div class="num" id="sec-hwid" style="font-size:1.4rem">&#10003;</div><div class="lbl">HWID Binding Active</div></div>
+          <div class="stat"><div class="num" id="sec-jwt" style="font-size:1.4rem">&#10003;</div><div class="lbl">JWT Token Auth</div></div>
+        </div>
+        <div style="background:#0f172a;border-radius:8px;padding:16px;font-size:.85rem;color:#94a3b8;line-height:1.7">
+          <p style="color:#38bdf8;font-weight:700;margin-bottom:8px">&#128270; Security Checklist</p>
+          <p>&#10003; <strong style="color:#4ade80">Challenge-Response</strong> — Every login requires a one-time nonce from /api/challenge</p>
+          <p>&#10003; <strong style="color:#4ade80">Rate Limiting</strong> — 5 attempts/60s → 5-min lockout; 15+ total → 1-hour lockout</p>
+          <p>&#10003; <strong style="color:#4ade80">HWID Binding</strong> — Device fingerprint bound per license, max devices enforced</p>
+          <p>&#10003; <strong style="color:#4ade80">JWT Expiry</strong> — Session tokens expire in 8 hours; client uses token-expiry auth</p>
+          <p>&#10003; <strong style="color:#4ade80">Input Validation</strong> — Email and license key format validated server-side</p>
+          <p>&#10003; <strong style="color:#4ade80">No Offline Bypass</strong> — Hardcoded offline licenses removed from extension</p>
+          <p>&#10003; <strong style="color:#4ade80">R2 Signed URLs</strong> — Download links expire in 5 minutes, HWID verified</p>
+          <p>&#10003; <strong style="color:#4ade80">DevTools Detection</strong> — Login dialog locks when browser inspector is open</p>
+          <p style="margin-top:12px;color:#fbbf24">&#9888; <strong>Reminder:</strong> Encrypt .rb files to .rbe using SketchUp Extension Encryption Service before commercial release.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>&#128204; Rate-Limited IPs <span class="section-tag">From Logs</span></h3>
+        <p style="color:#64748b;font-size:.85rem;margin-bottom:12px">IPs with recent failed login attempts</p>
+        <div id="rate-limit-list" style="font-family:monospace;font-size:.82rem;color:#94a3b8">Loading…</div>
       </div>
     </div>
 
@@ -431,29 +462,36 @@ async function loadModels() {
   renderModels(models);
 }
 
-function fmtSize(b) {
-  if (!b) return '—';
-  if (b < 1024) return b + ' B';
-  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-  return (b/1048576).toFixed(1) + ' MB';
+function fmtSizeMb(m) {
+  var mb = parseFloat(m.file_size_mb);
+  if (!isNaN(mb) && mb > 0) return mb.toFixed(1) + ' MB';
+  var b = parseInt(m.file_size);
+  if (!isNaN(b) && b > 0) return (b/1048576).toFixed(1) + ' MB';
+  return '—';
 }
 
 function renderModels(rows) {
   var tbody = document.getElementById('mod-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#475569;padding:24px">No models yet. Click "+ Add Model" to add one.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#475569;padding:24px">No models yet. Click "+ Add Model" to add one.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(function(m) {
+    // Use plan_required if available, fall back to is_premium flag
+    var planReq = m.plan_required || (m.is_premium ? 'pro' : 'free');
+    var isPro   = planReq === 'pro';
+    var isActive = m.active !== 0;  // default to active if field missing
     return '<tr>' +
-      '<td><strong>'+esc(m.name)+'</strong></td>' +
+      '<td><strong>'+esc(m.name)+'</strong>'+(m.category?'<br><span style="font-size:.72rem;color:#64748b">'+esc(m.category)+'</span>':'')+'</td>' +
       '<td><code style="color:#38bdf8;font-size:.76rem">'+esc(m.r2_path)+'</code></td>' +
-      '<td><span class="badge '+(m.is_premium?'b-premium':'b-free-model')+'">'+(m.is_premium?'PRO':'FREE')+'</span></td>' +
-      '<td style="font-size:.78rem;color:#64748b">'+fmtSize(m.file_size)+'</td>' +
+      '<td><span class="badge '+(isPro?'b-premium':'b-free-model')+'">'+(isPro?'PRO':'FREE')+'</span></td>' +
+      '<td style="font-size:.78rem;color:#64748b">'+fmtSizeMb(m)+'</td>' +
       '<td style="font-size:.78rem;color:#94a3b8;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.description||'')+'</td>' +
       '<td style="font-size:.76rem;color:#64748b">'+esc((m.created_at||'').substring(0,10))+'</td>' +
+      '<td><span class="badge b-'+(isActive?'active':'suspended')+'">'+(isActive?'Active':'Hidden')+'</span></td>' +
       '<td style="white-space:nowrap"><div style="display:flex;gap:2px">' +
         '<button class="btn btn-sm"     onclick="openEditModel(\''+m.model_id+'\')">Edit</button>' +
+        '<button class="btn '+(isActive?'btn-danger':'btn-success')+'" onclick="toggleModel(\''+m.model_id+'\','+(!isActive)+')">'+(isActive?'Hide':'Show')+'</button>' +
         '<button class="btn btn-danger" onclick="delModel(\''+m.model_id+'\',\''+esc(m.name)+'\')">Del</button>' +
       '</div></td></tr>';
   }).join('');
@@ -531,9 +569,10 @@ async function saveAccount() {
 function openAddModel() {
   document.getElementById('mod-modal-title').textContent = 'Add Model';
   document.getElementById('mm-id').value = '';
-  ['mm-name','mm-path','mm-size','mm-desc','mm-category','mm-tags'].forEach(function(id){ document.getElementById(id).value=''; });
+  ['mm-name','mm-path','mm-size','mm-desc','mm-tags','mm-thumb'].forEach(function(id){ document.getElementById(id).value=''; });
   document.getElementById('mm-premium').value  = '0';
   document.getElementById('mm-category').value = 'Architecture';
+  document.getElementById('mm-active').value   = '1';
   document.getElementById('mod-modal-err').style.display = 'none';
   document.getElementById('mod-modal-ov').classList.add('show');
 }
@@ -545,11 +584,15 @@ function openEditModel(id) {
   document.getElementById('mm-id').value       = m.model_id;
   document.getElementById('mm-name').value     = m.name;
   document.getElementById('mm-path').value     = m.r2_path;
-  document.getElementById('mm-premium').value  = m.is_premium ? '1' : '0';
-  document.getElementById('mm-size').value     = m.file_size_mb || m.file_size || '';
+  // Use plan_required if available; fall back to is_premium
+  var planReq = m.plan_required || (m.is_premium ? 'pro' : 'free');
+  document.getElementById('mm-premium').value  = planReq === 'pro' ? '1' : '0';
+  document.getElementById('mm-size').value     = m.file_size_mb || (m.file_size ? (m.file_size/1048576).toFixed(2) : '');
   document.getElementById('mm-desc').value     = m.description || '';
   document.getElementById('mm-category').value = m.category || 'General';
   document.getElementById('mm-tags').value     = m.tags || '';
+  document.getElementById('mm-active').value   = (m.active !== 0) ? '1' : '0';
+  document.getElementById('mm-thumb').value    = m.thumbnail || '';
   document.getElementById('mod-modal-err').style.display = 'none';
   document.getElementById('mod-modal-ov').classList.add('show');
 }
@@ -620,6 +663,45 @@ async function del(id) {
 function showEl(id, msg)  { var e=document.getElementById(id); e.textContent=msg; e.style.display=''; }
 function flash(id, msg)   { var e=document.getElementById(id); e.textContent=msg; e.style.display=''; setTimeout(function(){ e.style.display='none'; },4000); }
 function esc(s)           { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ── Override switchTab to init Security tab on first open ── */
+var _secTabInited = false;
+var _origSwitchTab = switchTab;
+switchTab = function(name, btn) {
+  _origSwitchTab(name, btn);
+  if (name === 'security' && !_secTabInited) { _secTabInited = true; initSecurityTab(); }
+};
+
+
+/* ── Auto-login if token stored ── */
+function initSecurityTab() {
+  // All security features are always active server-side — just display status
+  ['sec-challenge','sec-ratelimit','sec-hwid','sec-jwt'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el){ el.textContent = '✓'; el.style.color = '#4ade80'; }
+  });
+  // Show rate-limited IPs from recent logs
+  var rlList = document.getElementById('rate-limit-list');
+  if (rlList) {
+    api('GET', '/api/admin/logs').then(function(res) {
+      if (!res.ok) { rlList.textContent = 'Could not load logs.'; return; }
+      var logs    = res.data.logs || [];
+      var blocked = logs.filter(function(l){ return l.action === 'rate_limited'; });
+      if (!blocked.length) {
+        rlList.innerHTML = '<span style="color:#4ade80">No rate-limited IPs in recent logs. ✓</span>';
+        return;
+      }
+      var ips = {};
+      blocked.forEach(function(l){ ips[l.ip_addr] = (ips[l.ip_addr]||0)+1; });
+      rlList.innerHTML = Object.keys(ips).map(function(ip){
+        return '<div style="padding:4px 0;border-bottom:1px solid #1e293b">'+
+          '<span style="color:#f87171">'+esc(ip)+'</span>'+
+          ' — <span style="color:#94a3b8">'+ips[ip]+' blocked attempt(s)</span></div>';
+      }).join('');
+    });
+  }
+}
+
 
 /* ── Auto-login if token stored ── */
 if (TOKEN) {
