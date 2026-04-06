@@ -987,7 +987,7 @@ class Handler(BaseHTTPRequestHandler):
         if daily_limit is None:
             daily_limit = PLAN_DAILY_LIMITS.get(plan, 5)
         today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-  2     today_count  = conn.execute(
+        today_count  = conn.execute(
             "SELECT COUNT(*) as n FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
             (lid, f"{today_prefix}%")
         ).fetchone()["n"]
@@ -1045,7 +1045,7 @@ class Handler(BaseHTTPRequestHandler):
     def _get_user_models(self):
         """
         GET /api/models
-  2     Requires: Authorization: Bearer <session_token>
+        Requires: Authorization: Bearer <session_token>
 
         Dynamically scans the abimcon-assets R2 bucket.
         Every sub-folder becomes a Category.  All .skp files inside are
@@ -1084,7 +1084,7 @@ class Handler(BaseHTTPRequestHandler):
             for key, size in all_objects.items():
                 # Only .skp files; skip folder marker objects
                 if not key.lower().endswith(".skp") or key.endswith("/"):
- 2                  continue
+                    continue
 
                 parts    = key.split("/")
                 category = parts[0] if len(parts) > 1 else "General"
