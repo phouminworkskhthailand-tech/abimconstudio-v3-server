@@ -90,6 +90,7 @@ PORT       = int(os.environ.get("PORT", 8080))
 ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "abimcon_admin_2026")
 SECRET_KEY = os.environ.get("SECRET_KEY",     "abimcon_secret_key_v3_change_me")
 DB_PATH    = os.environ.get("DB_PATH",         "/data/abimcon_v3.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)  # ensure /data dir exists
 
 # Cloudflare R2 credentials (set these in Railway environment variables)
 R2_ACCOUNT_ID        = os.environ.get("R2_ACCOUNT_ID",        "")
