@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AbimconStudio — License Manager</title>
+<title>AbimconStudio â License Manager</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
@@ -62,7 +62,7 @@ tr:hover td{background:#162032}
 .dev-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:12px;font-size:.73rem;font-weight:600}
 .dev-ok{background:#164e63;color:#67e8f9}
 .dev-full{background:#451a03;color:#fb923c}
-.hwid-chip{font-family:monospace;font-size:.7rem;color:#94a3b8;background:#0f172a;padding:2px 6px;border-radius:4px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;cursor:help}
+.hwid-chip{font-family:monospace;font-size:.7rem;color:#94a3b8;background:#0f172a;padding:2px 6px;border-radius:4px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowraw;display:inline-block;cursor:help}
 .expiry-ok{color:#4ade80;font-size:.78rem}
 .expiry-warn{color:#fbbf24;font-size:.78rem}
 .expiry-expired{color:#f87171;font-size:.78rem;font-weight:700}
@@ -80,20 +80,42 @@ tr:hover td{background:#162032}
 .dl-bar-fill.warn{background:#f59e0b}
 .dl-bar-fill.danger{background:#ef4444}
 .section-tag{font-size:.7rem;background:#0f172a;color:#38bdf8;padding:2px 7px;border-radius:4px;margin-left:8px}
+/* Toggle switch */
+.toggle-wrap{display:flex;justify-content:center;align-items:center}
+.toggle{position:relative;display:inline-block;width:40px;height:22px}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:#334155;border-radius:22px;transition:.2s}
+.toggle-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+input:checked+.toggle-slider{background:#22c55e}
+input:checked+.toggle-slider:before{transform:translateX(18px)}
+input:disabled+.toggle-slider{opacity:.4;cursor:not-allowed}
+/* Plan matrix */
+.plan-matrix{border-collapse:collapse;width:100%}
+.plan-matrix th,.plan-matrix td{padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center}
+.plan-matrix th{background:#0f172a;font-size:.75rem;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.plan-matrix td:first-child,.plan-matrix th:first-child{text-align:left}
+.plan-matrix tr:hover td{background:#162032}
+.plan-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:700;text-transform:uppercase}
+.plan-badge.free{background:#1c1917;color:#a8a29e}
+.plan-badge.pro{background:#312e81;color:#a5b4fc}
+.plan-badge.trial{background:#14532d;color:#4ade80}
+.plan-badge.custom{background:#1e293b;color:#94a3b8}
+.b-trial{background:#14532d;color:#4ade80}
+#trial-days-row{display:none}
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <svg width="28" height="28" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".15"/><path d="M8 22 L16 10 L24 22" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="10" r="2.5" fill="#38bdf8"/></svg>
-  <h1>AbimconStudio — License Manager <span style="font-size:.75rem;opacity:.6;font-weight:400">v3</span></h1>
+  <h1>AbimconStudio â License Manager <span style="font-size:.75rem;opacity:.6;font-weight:400">v3</span></h1>
   <div class="right">
     <span id="admin-label" style="font-size:.85rem;color:#bfdbfe;opacity:.9"></span>
     <button class="btn-logout" id="logout-btn" style="display:none" onclick="logout()">Logout</button>
   </div>
 </div>
 
-<!-- ── Login ── -->
+<!-- ââ Login ââ -->
 <div id="login-section">
   <div class="login-card">
     <h2>&#128274; Admin Login</h2>
@@ -108,7 +130,7 @@ tr:hover td{background:#162032}
   </div>
 </div>
 
-<!-- ── Dashboard ── -->
+<!-- ââ Dashboard ââ -->
 <div id="dashboard-section">
   <div class="container">
 
@@ -126,15 +148,16 @@ tr:hover td{background:#162032}
       <button class="tab active" onclick="switchTab('licenses',this)">&#128273; Licenses</button>
       <button class="tab"        onclick="switchTab('models',this)">&#128190; Models</button>
       <button class="tab"        onclick="switchTab('logs',this)">&#128196; Activity</button>
+      <button class="tab"        onclick="switchTab('plans',this)">&#127775; Plans &amp; Roles</button>
       <button class="tab"        onclick="switchTab('security',this)">&#128737; Security</button>
     </div>
 
-    <!-- ── Tab: Licenses ── -->
+    <!-- ââ Tab: Licenses ââ -->
     <div class="tab-content active" id="tab-licenses">
       <div class="card">
         <h3>&#128273; License Accounts</h3>
         <div class="toolbar">
-          <input type="text" id="search" placeholder="Search by name, email, key, plan…" oninput="filterTable()">
+          <input type="text" id="search" placeholder="Search by name, email, key, planâ¦" oninput="filterTable()">
           <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
         </div>
         <div id="tbl-err" class="alert alert-error"></div>
@@ -149,25 +172,25 @@ tr:hover td{background:#162032}
       </div>
     </div>
 
-    <!-- ── Tab: Models ── -->
+    <!-- ââ Tab: Models ââ -->
     <div class="tab-content" id="tab-models">
       <div class="card">
         <h3>&#128190; Cloudflare R2 Models <span class="section-tag">Secure Downloads</span></h3>
         <div class="toolbar">
-          <input type="text" id="model-search" placeholder="Search models…" oninput="filterModels()">
+          <input type="text" id="model-search" placeholder="Search modelsâ¦" oninput="filterModels()">
           <button class="btn btn-primary" onclick="openAddModel()">+ Add Model</button>
         </div>
         <div id="mod-err" class="alert alert-error"></div>
         <div id="mod-ok"  class="alert alert-success"></div>
         <div style="overflow-x:auto">
           <table><thead><tr>
-            <th>Name</th><th>R2 Path</th><th>Plan</th><th>Size</th><th>Description</th><th>Added</th><th>Actions</th>
+            <th>Name / Category</th><th>R2 Path</th><th>Plan</th><th>Size</th><th>Description</th><th>Added</th><th>Status</th><th>Actions</th>
           </tr></thead><tbody id="mod-body"></tbody></table>
         </div>
       </div>
     </div>
 
-    <!-- ── Tab: Logs ── -->
+    <!-- ââ Tab: Logs ââ -->
     <div class="tab-content" id="tab-logs">
       <div class="card">
         <h3>&#128196; Recent Activity <span class="section-tag">Last 100</span></h3>
@@ -176,12 +199,43 @@ tr:hover td{background:#162032}
             <th>Time</th><th>Gmail</th><th>Action</th><th>Result</th><th>Public IP</th><th>HWID</th>
           </tr></thead>
           <tbody id="log-body"></tbody>
-        </table>
         </div>
       </div>
     </div>
 
-    <!-- ── Tab: Security ── -->
+    <!-- ââ Tab: Plans & Roles ââ -->
+    <div class="tab-content" id="tab-plans">
+      <div class="card">
+        <h3>&#127775; Plan &amp; Feature Management <span class="section-tag">Live â saves instantly</span></h3>
+        <p style="color:#64748b;font-size:.85rem;margin-bottom:18px">Toggle which features each plan can access. Changes take effect on the user's next login.</p>
+        <div class="toolbar" style="margin-bottom:20px">
+          <button class="btn btn-primary" onclick="openAddPlan()">+ Add Plan / Role</button>
+          <button class="btn btn-sm"      onclick="openAddFeature()">+ Add Feature</button>
+          <button class="btn btn-sm"      onclick="loadPlanFeatures()">&#8635; Refresh</button>
+        </div>
+        <div id="plan-err" class="alert alert-error"></div>
+        <div id="plan-ok"  class="alert alert-success"></div>
+        <div style="overflow-x:auto">
+          <table class="plan-matrix" id="plan-matrix-tbl">
+            <thead id="plan-matrix-head"><tr><th>Feature</th></tr></thead>
+            <tbody id="plan-matrix-body"></tbody>
+          </table>
+        </div>
+        <p style="color:#475569;font-size:.78rem;margin-top:14px">&#9432; The <strong style="color:#e2e8f0">features</strong> object is returned inside <code style="color:#38bdf8">/api/validate</code> â your SketchUp extension can read it to show/hide UI elements.</p>
+      </div>
+      <div class="card">
+        <h3>&#128161; How Trial Accounts Work</h3>
+        <div style="background:#0f172a;border-radius:8px;padding:14px;font-size:.85rem;color:#94a3b8;line-height:1.8">
+          <p>&#10003; Set plan to <strong style="color:#4ade80">Trial</strong> when adding/editing an account</p>
+          <p>&#10003; Enter the number of trial days â expiry is set automatically</p>
+          <p>&#10003; Trial plan features are managed in the table above</p>
+          <p>&#10003; When the trial expires, the user sees "License expired. Contact your administrator."</p>
+          <p>&#10003; Upgrade by changing plan to <strong style="color:#a5b4fc">Pro</strong> and extending the expiry date</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ââ Tab: Security ââ -->
     <div class="tab-content" id="tab-security">
       <div class="card">
         <h3>&#128737; Security Status <span class="section-tag">Live</span></h3>
@@ -193,28 +247,28 @@ tr:hover td{background:#162032}
         </div>
         <div style="background:#0f172a;border-radius:8px;padding:16px;font-size:.85rem;color:#94a3b8;line-height:1.7">
           <p style="color:#38bdf8;font-weight:700;margin-bottom:8px">&#128270; Security Checklist</p>
-          <p>&#10003; <strong style="color:#4ade80">Challenge-Response</strong> — Every login requires a one-time nonce from /api/challenge</p>
-          <p>&#10003; <strong style="color:#4ade80">Rate Limiting</strong> — 5 attempts/60s → 5-min lockout; 15+ total → 1-hour lockout</p>
-          <p>&#10003; <strong style="color:#4ade80">HWID Binding</strong> — Device fingerprint bound per license, max devices enforced</p>
-          <p>&#10003; <strong style="color:#4ade80">JWT Expiry</strong> — Session tokens expire in 8 hours; client uses token-expiry auth</p>
-          <p>&#10003; <strong style="color:#4ade80">Input Validation</strong> — Email and license key format validated server-side</p>
-          <p>&#10003; <strong style="color:#4ade80">No Offline Bypass</strong> — Hardcoded offline licenses removed from extension</p>
-          <p>&#10003; <strong style="color:#4ade80">R2 Signed URLs</strong> — Download links expire in 5 minutes, HWID verified</p>
-          <p>&#10003; <strong style="color:#4ade80">DevTools Detection</strong> — Login dialog locks when browser inspector is open</p>
+          <p>&#10003; <strong style="color:#4ade80">Challenge-Response</strong> â Every login requires a one-time nonce from /api/challenge</p>
+          <p>&#10003; <strong style="color:#4ade80">Rate Limiting</strong> â 5 attempts/60s â 5-min lockout; 15+ total â 1-hour lockout</p>
+          <p>&#10003; <strong style="color:#4ade80">HWID Binding</strong> â Device fingerprint bound per license, max devices enforced</p>
+          <p>&#10003; <strong style="color:#4ade80">JWT Expiry</strong> â Session tokens expire in 8 hours; client uses token-expiry auth</p>
+          <p>&#10003; <strong style="color:#4ade80">Input Validation</strong> â Email and license key format validated server-side</p>
+          <p>&#10003; <strong style="color:#4ade80">No Offline Bypass</strong> â Hardcoded offline licenses removed from extension</p>
+          <p>&#10003; <strong style="color:#4ade80">R2 Signed URLs</strong> â Download links expire in 5 minutes, HWID verified</p>
+          <p>&#10003; <strong style="color:#4ade80">DevTools Detection</strong> â Login dialog locks when browser inspector is open</p>
           <p style="margin-top:12px;color:#fbbf24">&#9888; <strong>Reminder:</strong> Encrypt .rb files to .rbe using SketchUp Extension Encryption Service before commercial release.</p>
         </div>
       </div>
       <div class="card">
         <h3>&#128204; Rate-Limited IPs <span class="section-tag">From Logs</span></h3>
         <p style="color:#64748b;font-size:.85rem;margin-bottom:12px">IPs with recent failed login attempts</p>
-        <div id="rate-limit-list" style="font-family:monospace;font-size:.82rem;color:#94a3b8">Loading…</div>
+        <div id="rate-limit-list" style="font-family:monospace;font-size:.82rem;color:#94a3b8">Loadingâ¦</div>
       </div>
     </div>
 
   </div>
 </div>
 
-<!-- ── License Modal ── -->
+<!-- ââ License Modal ââ -->
 <div class="modal-overlay" id="modal-ov">
   <div class="modal">
     <h3 id="modal-title">Add Account</h3>
@@ -236,18 +290,24 @@ tr:hover td{background:#162032}
     <div class="form-group"><label>License Key</label>
       <div style="display:flex;gap:6px;align-items:center">
         <input type="text" id="m-key" placeholder="ABIM-XXXX-XXXX-XXXX" style="flex:1">
-        <button class="btn btn-sm" type="button" onclick="genLicKey()" title="Auto-generate key">⚡ Generate</button>
+        <button class="btn btn-sm" type="button" onclick="genLicKey()" title="Auto-generate key">â¡ Generate</button>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Plan</label>
-        <select id="m-plan">
+        <select id="m-plan" onchange="onPlanChange()">
           <option value="free">Free</option>
           <option value="pro">Pro</option>
+          <option value="trial">Trial (time-limited)</option>
         </select>
       </div>
       <div class="form-group"><label>Expiry Date</label>
         <input type="date" id="m-expiry">
+      </div>
+    </div>
+    <div class="form-row" id="trial-days-row">
+      <div class="form-group" style="grid-column:1/-1"><label>Trial Duration (days) <span style="color:#64748b;font-size:.78rem">â auto-sets expiry if blank above</span></label>
+        <input type="number" id="m-trial-days" value="10" min="1" max="365" placeholder="e.g. 10">
       </div>
     </div>
     <div class="form-row">
@@ -263,7 +323,7 @@ tr:hover td{background:#162032}
   </div>
 </div>
 
-<!-- ── Model Modal ── -->
+<!-- ââ Model Modal ââ -->
 <div class="modal-overlay" id="mod-modal-ov">
   <div class="modal">
     <h3 id="mod-modal-title">Add Model</h3>
@@ -291,9 +351,56 @@ tr:hover td{background:#162032}
     </div>
     <div class="form-group"><label>Description</label>
       <textarea id="mm-desc" rows="2" placeholder="Optional description"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Active / Visible to Users</label>
+        <select id="mm-active">
+          <option value="1">Active (visible)</option>
+          <option value="0">Hidden</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Thumbnail <span style="color:#64748b;font-size:.78rem">(R2 path or URL)</span></label>
+        <input type="text" id="mm-thumb" placeholder="thumbnails/model.jpg or leave blank"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-sm" onclick="closeModModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveModel()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ââ Add Plan Modal ââ -->
+<div class="modal-overlay" id="addplan-ov">
+  <div class="modal">
+    <h3>&#127775; Add New Plan / Role</h3>
+    <div id="addplan-err" class="alert alert-error"></div>
+    <div class="form-group"><label>Plan Name <span style="color:#64748b;font-size:.78rem">(lowercase, e.g. enterprise, starter)</span></label>
+      <input type="text" id="ap-name" placeholder="e.g. enterprise"></div>
+    <div class="form-group"><label>Default Feature Access</label>
+      <select id="ap-default">
+        <option value="1">All features enabled (like Pro)</option>
+        <option value="0">All features disabled (like Free)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeAddPlan()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveNewPlan()">Create Plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ââ Add Feature Modal ââ -->
+<div class="modal-overlay" id="addfeat-ov">
+  <div class="modal">
+    <h3>&#10024; Add New Feature</h3>
+    <div id="addfeat-err" class="alert alert-error"></div>
+    <div class="form-group"><label>Feature Key <span style="color:#64748b;font-size:.78rem">(lowercase_underscore, e.g. reports)</span></label>
+      <input type="text" id="af-key" placeholder="e.g. reports"></div>
+    <div class="form-group"><label>Display Label</label>
+      <input type="text" id="af-label" placeholder="e.g. Reports"></div>
+    <p style="color:#64748b;font-size:.82rem;margin-top:4px">This feature will be added to all plans, disabled by default. Toggle it on per-plan in the matrix.</p>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeAddFeature()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveNewFeature()">Add Feature</button>
     </div>
   </div>
 </div>
@@ -304,7 +411,7 @@ var TOKEN    = localStorage.getItem('abimcon_tok') || '';
 var licenses = [];
 var models   = [];
 
-/* ── Tab switching ── */
+/* ââ Tab switching ââ */
 function switchTab(name, btn) {
   document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
   document.querySelectorAll('.tab').forEach(function(el){ el.classList.remove('active'); });
@@ -312,7 +419,7 @@ function switchTab(name, btn) {
   btn.classList.add('active');
 }
 
-/* ── API helper ── */
+/* ââ API helper ââ */
 async function api(method, path, body) {
   var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
   if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
@@ -325,12 +432,12 @@ async function api(method, path, body) {
   }
 }
 
-/* ── Auth ── */
+/* ââ Auth ââ */
 async function doLogin() {
   var pass = document.getElementById('admin-pass').value.trim();
   if (!pass) { showEl('login-err','Enter your password'); return; }
   var btn = document.getElementById('login-btn');
-  btn.textContent = 'Logging in…'; btn.disabled = true;
+  btn.textContent = 'Logging inâ¦'; btn.disabled = true;
   var res = await api('POST', '/api/admin/login', { password: pass });
   btn.textContent = 'Login'; btn.disabled = false;
   if (!res.ok) { showEl('login-err', res.data.error || 'Invalid password'); return; }
@@ -355,10 +462,10 @@ function logout() {
   document.getElementById('admin-label').textContent         = '';
 }
 
-/* ── Load all data ── */
-async function loadAll() { await Promise.all([loadLicenses(), loadLogs(), loadModels()]); }
+/* ââ Load all data ââ */
+async function loadAll() { await Promise.all([loadLicenses(), loadLogs(), loadModels(), loadPlanFeatures()]); }
 
-/* ── Licenses ── */
+/* ââ Licenses ââ */
 async function loadLicenses() {
   var res = await api('GET', '/api/admin/licenses');
   if (!res.ok) { if (res.status === 401) logout(); return; }
@@ -371,7 +478,7 @@ async function loadLicenses() {
 }
 
 function expiryDisplay(d) {
-  if (!d) return '<span style="color:#475569">—</span>';
+  if (!d) return '<span style="color:#475569">â</span>';
   var today = new Date().toISOString().substring(0,10);
   var diff  = Math.ceil((new Date(d) - new Date(today)) / 86400000);
   if (diff < 0)  return '<span class="expiry-expired">EXPIRED</span>';
@@ -380,7 +487,7 @@ function expiryDisplay(d) {
 }
 
 function dlBar(used, limit) {
-  if (!limit) return '<span style="color:#475569">—</span>';
+  if (!limit) return '<span style="color:#475569">â</span>';
   var pct  = Math.min(100, Math.round(used / limit * 100));
   var cls  = pct >= 100 ? 'danger' : pct >= 70 ? 'warn' : '';
   return '<div style="font-size:.75rem;color:#94a3b8">' + used + '/' + limit + '</div>' +
@@ -400,7 +507,7 @@ function renderTable(rows) {
     var ddl    = l.daily_download_limit;
     var hwids  = (l.hwids || []);
     var hwStr  = hwids.length
-      ? hwids.map(function(h){ return '<span class="hwid-chip" title="'+esc(h.hwid)+' | '+esc(h.ip_addr||'')+'">'+esc(h.hwid.substring(0,14))+'…</span>'; }).join(' ')
+      ? hwids.map(function(h){ return '<span class="hwid-chip" title="'+esc(h.hwid)+' | '+esc(h.ip_addr||'')+'">'+esc(h.hwid.substring(0,14))+'â¦</span>'; }).join(' ')
       : '<span style="color:#475569">none</span>';
 
     return '<tr>' +
@@ -419,8 +526,8 @@ function renderTable(rows) {
       '<td style="white-space:nowrap"><div style="display:flex;gap:2px;flex-wrap:wrap">' +
         '<button class="btn btn-sm"     onclick="openEdit(\''+l.id+'\')">Edit</button>' +
         '<button class="btn '+(l.active?'btn-danger':'btn-success')+'" onclick="toggle(\''+l.id+'\','+(!l.active)+')">'+(l.active?'Suspend':'Activate')+'</button>' +
-        '<button class="btn btn-warn"   onclick="resetHwid(\''+l.id+'\',\''+esc(l.name)+'\')">↺ HWID</button>' +
-        '<button class="btn btn-info"   onclick="resetDl(\''+l.id+'\',\''+esc(l.name)+'\')">↺ DL</button>' +
+        '<button class="btn btn-warn"   onclick="resetHwid(\''+l.id+'\',\''+esc(l.name)+'\')">âº HWID</button>' +
+        '<button class="btn btn-info"   onclick="resetDl(\''+l.id+'\',\''+esc(l.name)+'\')">âº DL</button>' +
         '<button class="btn btn-danger" onclick="del(\''+l.id+'\')">Del</button>' +
       '</div></td></tr>';
   }).join('');
@@ -431,30 +538,33 @@ function filterTable() {
   renderTable(q ? licenses.filter(function(l){ return (l.name+l.gmail+l.license_key+l.plan_type).toLowerCase().includes(q); }) : licenses);
 }
 
-/* ── Logs ── */
+/* ââ Logs ââ */
 async function loadLogs() {
   var res = await api('GET', '/api/admin/logs');
   if (!res.ok) return;
   document.getElementById('log-body').innerHTML = (res.data.logs || []).map(function(l) {
     var hwid = l.hwid || '';
     var hwShort = hwid
-      ? '<span class="hwid-chip" title="'+esc(hwid)+'">'+esc(hwid.substring(0,16))+'…</span>'
-      : '<span style="color:#475569">—</span>';
-    var actionBadge = l.action === 'hwid_blocked' || l.action === 'download_hwid_mismatch'
-      ? '<span class="badge b-blocked">'+l.action+'</span>'
-      : esc(l.action || '');
+      ? '<span class="hwid-chip" title="'+esc(hwid)+'">'+esc(hwid.substring(0,16))+'â¦</span>'
+      : '<span style="color:#475569">â</span>';
+    var _blockedActions = ['hwid_blocked','download_hwid_mismatch','rate_limited','hwid_limit'];
+    var actionBadge = _blockedActions.indexOf(l.action) >= 0
+      ? '<span class="badge b-blocked">'+esc(l.action)+'</span>'
+      : l.action === 'sketchup_login' && l.success
+        ? '<span class="badge b-active">'+esc(l.action)+'</span>'
+        : esc(l.action || '');
     return '<tr>' +
       '<td style="font-size:.78rem;color:#64748b">'+esc((l.created_at||'').replace('T',' ').substring(0,19))+'</td>' +
       '<td>'+esc(l.gmail||'')+'</td>' +
       '<td>'+actionBadge+'</td>' +
       '<td>'+(l.success ? '<span class="badge b-active">OK</span>' : '<span class="badge b-suspended">FAIL</span>')+'</td>' +
-      '<td style="font-size:.76rem;font-family:monospace">'+esc(l.ip_addr||'—')+'</td>' +
+      '<td style="font-size:.76rem;font-family:monospace">'+esc(l.ip_addr||'â')+'</td>' +
       '<td>'+hwShort+'</td>' +
     '</tr>';
   }).join('');
 }
 
-/* ── Models ── */
+/* ââ Models ââ */
 async function loadModels() {
   var res = await api('GET', '/api/admin/models');
   if (!res.ok) return;
@@ -468,7 +578,7 @@ function fmtSizeMb(m) {
   if (!isNaN(mb) && mb > 0) return mb.toFixed(1) + ' MB';
   var b = parseInt(m.file_size);
   if (!isNaN(b) && b > 0) return (b/1048576).toFixed(1) + ' MB';
-  return '—';
+  return 'â';
 }
 
 function renderModels(rows) {
@@ -503,7 +613,7 @@ function filterModels() {
   renderModels(q ? models.filter(function(m){ return (m.name+m.r2_path+m.description).toLowerCase().includes(q); }) : models);
 }
 
-/* ── License Modal ── */
+/* ââ License Modal ââ */
 function genLicKey() {
   var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   var seg = function(n) {
@@ -518,9 +628,11 @@ function openAdd() {
   document.getElementById('modal-title').textContent = 'Add Account';
   document.getElementById('m-id').value = '';
   ['m-name','m-gmail','m-expiry','m-ddl'].forEach(function(id){ document.getElementById(id).value=''; });
-  document.getElementById('m-role').value   = 'editor';
-  document.getElementById('m-plan').value   = 'free';
-  document.getElementById('m-maxdev').value = '2';
+  document.getElementById('m-role').value        = 'editor';
+  document.getElementById('m-plan').value        = 'free';
+  document.getElementById('m-maxdev').value      = '2';
+  document.getElementById('m-trial-days').value  = '10';
+  document.getElementById('trial-days-row').style.display = 'none';
   document.getElementById('modal-err').style.display = 'none';
   genLicKey();   // auto-fill a fresh key
   document.getElementById('modal-ov').classList.add('show');
@@ -539,6 +651,7 @@ function openEdit(id) {
   document.getElementById('m-maxdev').value = l.max_devices || 2;
   document.getElementById('m-expiry').value = l.expiry_date || '';
   document.getElementById('m-ddl').value    = l.daily_download_limit != null ? l.daily_download_limit : '';
+  document.getElementById('trial-days-row').style.display = (l.plan_type === 'trial') ? '' : 'none';
   document.getElementById('modal-err').style.display = 'none';
   document.getElementById('modal-ov').classList.add('show');
 }
@@ -555,18 +668,21 @@ async function saveAccount() {
   var maxDev  = parseInt(document.getElementById('m-maxdev').value) || 2;
   var expiry  = document.getElementById('m-expiry').value || null;
   var ddlRaw  = document.getElementById('m-ddl').value.trim();
-  var ddl     = ddlRaw !== '' ? parseInt(ddlRaw) : null;
+  var ddl       = ddlRaw !== '' ? parseInt(ddlRaw) : null;
+  var trialDays = parseInt(document.getElementById('m-trial-days').value) || 10;
   if (!name||!gmail||!key) { showEl('modal-err','All required fields must be filled'); return; }
   var method  = id ? 'PUT'  : 'POST';
   var path    = id ? '/api/admin/licenses/'+id : '/api/admin/licenses';
-  var res = await api(method, path, { name, gmail, license_key: key, role, plan_type: plan, max_devices: maxDev, expiry_date: expiry, daily_download_limit: ddl });
+  var body    = { name, gmail, license_key: key, role, plan_type: plan, max_devices: maxDev, expiry_date: expiry, daily_download_limit: ddl };
+  if (plan === 'trial' && !expiry) body.trial_days = trialDays;
+  var res = await api(method, path, body);
   if (!res.ok) { showEl('modal-err', res.data.error||'Save failed'); return; }
   closeModal();
   flash('tbl-ok','Account saved successfully.');
   loadLicenses();
 }
 
-/* ── Model Modal ── */
+/* ââ Model Modal ââ */
 function openAddModel() {
   document.getElementById('mod-modal-title').textContent = 'Add Model';
   document.getElementById('mm-id').value = '';
@@ -601,19 +717,24 @@ function openEditModel(id) {
 function closeModModal() { document.getElementById('mod-modal-ov').classList.remove('show'); }
 
 async function saveModel() {
-  var id          = document.getElementById('mm-id').value;
-  var name        = document.getElementById('mm-name').value.trim();
-  var r2_path     = document.getElementById('mm-path').value.trim();
-  var is_premium  = document.getElementById('mm-premium').value === '1';
+  var id           = document.getElementById('mm-id').value;
+  var name         = document.getElementById('mm-name').value.trim();
+  var r2_path      = document.getElementById('mm-path').value.trim();
+  var is_premium   = document.getElementById('mm-premium').value === '1';
   var plan_required = is_premium ? 'pro' : 'free';
-  var file_size_mb  = parseFloat(document.getElementById('mm-size').value) || 0;
-  var description = document.getElementById('mm-desc').value.trim();
-  var category    = document.getElementById('mm-category').value.trim() || 'General';
-  var tags        = document.getElementById('mm-tags').value.trim();
+  var file_size_mb = parseFloat(document.getElementById('mm-size').value) || 0;
+  var description  = document.getElementById('mm-desc').value.trim();
+  var category     = document.getElementById('mm-category').value.trim() || 'General';
+  var tags         = document.getElementById('mm-tags').value.trim();
+  var active       = document.getElementById('mm-active').value === '1';
+  var thumbnail    = document.getElementById('mm-thumb').value.trim();
   if (!name||!r2_path) { showEl('mod-modal-err','Name and R2 Path are required'); return; }
   var method = id ? 'PUT'  : 'POST';
   var path   = id ? '/api/admin/models/'+id : '/api/admin/models';
-  var res = await api(method, path, { name, r2_path, is_premium, plan_required, file_size_mb, description, category, tags });
+  var res = await api(method, path, {
+    name, r2_path, is_premium, plan_required, file_size_mb,
+    description, category, tags, active, thumbnail
+  });
   if (!res.ok) { showEl('mod-modal-err', res.data.error||'Save failed'); return; }
   closeModModal();
   flash('mod-ok','Model saved.');
@@ -621,14 +742,14 @@ async function saveModel() {
 }
 
 async function delModel(id, name) {
-  if (!confirm('Delete model "'+name+'"?\nThis only removes it from the database — the R2 file is NOT deleted.')) return;
+  if (!confirm('Delete model "'+name+'"?\nThis only removes it from the database â the R2 file is NOT deleted.')) return;
   var res = await api('DELETE', '/api/admin/models/'+id);
   if (!res.ok) { flash('mod-err', res.data.error||'Delete failed'); return; }
   flash('mod-ok','Model deleted.');
   loadModels();
 }
 
-/* ── License Actions ── */
+/* ââ License Actions ââ */
 async function toggle(id, newState) {
   var res = await api('PUT', '/api/admin/licenses/'+id, { active: newState });
   if (!res.ok) { flash('tbl-err', res.data.error||'Update failed'); return; }
@@ -660,26 +781,132 @@ async function del(id) {
   loadLicenses();
 }
 
-/* ── Utils ── */
+/* ââ Plan Change (show/hide trial days) ââ */
+function onPlanChange() {
+  var plan = document.getElementById('m-plan').value;
+  document.getElementById('trial-days-row').style.display = plan === 'trial' ? '' : 'none';
+}
+
+/* ââ Plan Features ââ */
+async function loadPlanFeatures() {
+  var res = await api('GET', '/api/admin/plan-features');
+  if (!res.ok) { return; }
+  var data     = res.data;
+  var plans    = data.plans    || [];
+  var features = data.features || {};
+  var matrix   = data.matrix   || {};
+
+  // Build header row
+  var head = document.getElementById('plan-matrix-head');
+  var headRow = '<tr><th>Feature</th>';
+  plans.forEach(function(p) {
+    var badge = '<span class="plan-badge ' + (p === 'free' ? 'free' : p === 'pro' ? 'pro' : p === 'trial' ? 'trial' : 'custom') + '">' + esc(p) + '</span>';
+    headRow += '<th>' + badge + '</th>';
+  });
+  headRow += '</tr>';
+  head.innerHTML = headRow;
+
+  // Build body rows â sorted by sort_order
+  var fkeys = Object.keys(features).sort(function(a, b) {
+    return (features[a].sort_order || 99) - (features[b].sort_order || 99);
+  });
+  var bodyHTML = '';
+  fkeys.forEach(function(fk) {
+    bodyHTML += '<tr>';
+    bodyHTML += '<td><strong style="color:#e2e8f0">' + esc(features[fk].label || fk) + '</strong><br><span style="color:#475569;font-size:.73rem;font-family:monospace">' + esc(fk) + '</span></td>';
+    plans.forEach(function(p) {
+      var checked  = (matrix[p] && matrix[p][fk]) ? 'checked' : '';
+      var disabled = (p === 'pro' && fk === 'boq_input') ? 'disabled title="Core feature â always on for Pro"'" : '';
+      bodyHTML += '<td><div class="toggle-wrap"><label class="toggle">'
+        + '<input type="checkbox" ' + checked + ' ' + disabled + ' onchange="toggleFeature(\'' + esc(p) + '\',\'' + esc(fk) + '\',this.checked)">'
+        + '<span class="toggle-slider"></span></label></div></td>';
+    });
+    bodyHTML += '</tr>';
+  });
+  document.getElementById('plan-matrix-body').innerHTML = bodyHTML;
+
+  // Also refresh the plan dropdown in license modal with any custom plans
+  var sel = document.getElementById('m-plan');
+  var std = ['free','pro','trial'];
+  // Remove any previously added custom options
+  Array.from(sel.options).forEach(function(o) {
+    if (!std.includes(o.value)) sel.remove(o.index);
+  });
+  plans.forEach(function(p) {
+    if (!std.includes(p)) {
+      var opt = new Option(p.charAt(0).toUpperCase()+p.slice(1), p);
+      sel.add(opt);
+    }
+  });
+}
+
+async function toggleFeature(planType, featureKey, enabled) {
+  var res = await api('PUT', '/api/admin/plan-features', { plan_type:planType, feature_key: featureKey, enabled: enabled });
+  if (!res.ok) {
+    flash('plan-err', 'Failed to save: ' + (res.data.error || 'Server error'));
+    loadPlanFeatures(); // revert UI
+    return;
+  }
+  flash('plan-ok', '\u2713 ' + planType.toUpperCase() + ' \u2192 ' + featureKey + ' set to ' + (enabled ? 'ON' : 'OFF'));
+}
+
+/* ââ Add Plan Modal ââ */
+function openAddPlan() {
+  document.getElementById('ap-name').value = '';
+  document.getElementById('ap-default').value = '1';
+  document.getElementById('addplan-err').style.display = 'none';
+  document.getElementById('addplan-ov').classList.add('show');
+}
+function closeAddPlan() { document.getElementById('addplan-ov').classList.remove('show'); }
+async function saveNewPlan() {
+  var name = document.getElementById('ap-name').value.trim().toLowerCase().replace(/\s+/g,'_');
+  var def  = document.getElementById('ap-default').value === '1';
+  if (!name) { showEl('addplan-err','Plan name is required'); return; }
+  var res = await api('POST', '/api/admin/plan-features', { action: 'add_plan', plan_type: name, default_enabled: def });
+  if (!res.ok) { showEl('addplan-err', res.data.error || 'Failed'); return; }
+  closeAddPlan();
+  flash('plan-ok', 'Plan "' + name + '" created!');
+  loadPlanFeatures();
+}
+
+/* ââ Add Feature Modal ââ */
+function openAddFeature() {
+  document.getElementById('af-key').value = '';
+  document.getElementById('af-label').value = '';
+  document.getElementById('addfeat-err').style.display = 'none';
+  document.getElementById('addfeat-ov').classList.add('show');
+}
+function closeAddFeature() { document.getElementById('addfeat-ov').classList.remove('show'); }
+async function saveNewFeature() {
+  var key   = document.getElementById('af-key').value.trim().toLowerCase().replace(/\s+/g,'_');
+  var label = document.getElementById('af-label').value.trim() || key.replace(/_/g,' ').replace(/\b\w/g,function(c){ return c.toUpperCase(); });
+  if (!key) { showEl('addfeat-err','Feature key is required'); return; }
+  var res = await api('POST', '/api/admin/plan-features', { action: 'add_feature', feature_key: key, label: label });
+  if (!res.ok) { showEl('addfeat-err', res.data.error || 'Failed'); return; }
+  closeAddFeature();
+  flash('plan-ok', 'Feature "' + label + '" added to all plans (disabled by default â toggle on as needed).');
+  loadPlanFeatures();
+}
+
+/* ââ Utils ââ */
 function showEl(id, msg)  { var e=document.getElementById(id); e.textContent=msg; e.style.display=''; }
 function flash(id, msg)   { var e=document.getElementById(id); e.textContent=msg; e.style.display=''; setTimeout(function(){ e.style.display='none'; },4000); }
 function esc(s)           { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-/* ── Override switchTab to init Security tab on first open ── */
-var _secTabInited = false;
-var _origSwitchTab = switchTab;
-switchTab = function(name, btn) {
-  _origSwitchTab(name, btn);
-  if (name === 'security' && !_secTabInited) { _secTabInited = true; initSecurityTab(); }
-};
+/* ââ Model toggle active/hidden ââ */
+async function toggleModel(id, newState) {
+  var res = await api('PUT', '/api/admin/models/'+id, { active: newState });
+  if (!res.ok) { flash('mod-err', res.data.error||'Update failed'); return; }
+  flash('mod-ok', newState ? 'Model is now visible to users.' : 'Model hidden from users.');
+  loadModels();
+}
 
-
-/* ── Auto-login if token stored ── */
+/* ââ Security tab init ââ */
 function initSecurityTab() {
-  // All security features are always active server-side — just display status
+  // All security features are always active server-side â just display status
   ['sec-challenge','sec-ratelimit','sec-hwid','sec-jwt'].forEach(function(id){
     var el = document.getElementById(id);
-    if(el){ el.textContent = '✓'; el.style.color = '#4ade80'; }
+    if(el){ el.textContent = 'â'; el.style.color = '#4ade80'; }
   });
   // Show rate-limited IPs from recent logs
   var rlList = document.getElementById('rate-limit-list');
@@ -689,7 +916,7 @@ function initSecurityTab() {
       var logs    = res.data.logs || [];
       var blocked = logs.filter(function(l){ return l.action === 'rate_limited'; });
       if (!blocked.length) {
-        rlList.innerHTML = '<span style="color:#4ade80">No rate-limited IPs in recent logs. ✓</span>';
+        rlList.innerHTML = '<span style="color:#4ade80">No rate-limited IPs in recent logs. â</span>';
         return;
       }
       var ips = {};
@@ -697,14 +924,21 @@ function initSecurityTab() {
       rlList.innerHTML = Object.keys(ips).map(function(ip){
         return '<div style="padding:4px 0;border-bottom:1px solid #1e293b">'+
           '<span style="color:#f87171">'+esc(ip)+'</span>'+
-          ' — <span style="color:#94a3b8">'+ips[ip]+' blocked attempt(s)</span></div>';
+          ' â <span style="color:#94a3b8">'+ips[ip]+' blocked attempt(s)</span></div>';
       }).join('');
     });
   }
 }
 
+/* ââ Override switchTab to init Security tab on first open ââ */
+var _secTabInited = false;
+var _origSwitchTab = switchTab;
+switchTab = function(name, btn) {
+  _origSwitchTab(name, btn);
+  if (name === 'security' && !_secTabInited) { _secTabInited = true; initSecurityTab(); }
+};
 
-/* ── Auto-login if token stored ── */
+/* ââ Auto-login if token stored ââ */
 if (TOKEN) {
   api('GET', '/api/admin/verify').then(function(res){ res.ok ? showDash() : logout(); });
 }
