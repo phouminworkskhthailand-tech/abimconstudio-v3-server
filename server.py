@@ -772,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
             keys = model.keys()
             model_plan = model["plan_required"] if "plan_required" in keys else ("pro" if model["is_premium"] else "free")
             if model_plan == "pro" and lic["plan_type"] != "pro":
-                         conn.close()
+                conn.close()
                 self._json(403, {
                     "ok": False, "error": "This model requires a Pro plan. Please upgrade.",
                     "code": "PLAN_REQUIRED"
@@ -843,7 +843,7 @@ class Handler(BaseHTTPRequestHandler):
             "total":        len(lics),
             "active":       sum(1 for l in lics if l["active"]),
             "suspended":    sum(1 for l in lics if not l["active"]),
-            "tns": logs["n"] if logs else 0,
+            "total_logins": logs["n"] if logs else 0,
         })
 
     def _get_logs(self):
@@ -1442,10 +1442,11 @@ if __name__ == "__main__":
     init_db()
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[AbimconStudio V3] Server v3 running → http://0.0.0.0:{PORT}")
-    print(f"[AbimconStudio V3] Admin panel       → http://localhost:{PORT}")
+    print(f"[AbimconStudio V3] Admin panel       → hw")
     print(f"[AbimconStudio V3] Admin password    → {ADMIN_PASS}")
     print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        print("\n[Ab
         print("\n[AbimconStudio V3] Stopped.")
