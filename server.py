@@ -361,7 +361,7 @@ def verify_token(token):
 
 # ââ Admin Panel HTML ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 _admin_path = os.path.join(os.path.dirname(__file__), "admin.html")
-ADMIN_HTML  = open(_admin_path).read() if os.path.exists(_admin_path) \
+ADMIN_HTML  = open(_admin_path, encoding="utf-8").read() if os.path.exists(_admin_path) \
               else "<h1>Admin panel not found</h1>"
 
 # ââ HTTP Handler ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
