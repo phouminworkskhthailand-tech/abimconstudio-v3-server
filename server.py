@@ -285,14 +285,14 @@ def init_db():
                 (str(uuid.uuid4()), plan, fkey, label, enabled, sort)
             )
 
-    # ── Seed licenses ─────────────────────────────────────────────────────────
+    # ── Seed licenses ─────────────────────────────────────────────────────
     c.execute("SELECT COUNT(*) FROM licenses")
     if c.fetchone()[0] == 0:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         expiry_pro  = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%d")
         seeds = [
             ("abimcon.user01@gmail.com","ABIM-4K9L-MN2P-X001","Abimcon User 01","admin",  "pro",  expiry_pro, 2, 100),
-            ("abimcon.user02@gmail.com","ABIM-7R3T-QW5X-X002","Abimcon User 02","editor", "pro",  expiry_pro, 2, 100),
+            ("abimcon.user02@gmail.com","ABIM-7R3T-QW5X-X002","Abimcon User 02","editor", "pro", or", "pro",  expiry_pro, 2, 100),
             ("abimcon.user03@gmail.com","ABIM-1ZBP-HV8C-X003","Abimcon User 03","editor", "free", None,       2, 5),
             ("abimcon.user04@gmail.com","ABIM-9NKW-DF4J-X004","Abimcon User 04","viewer", "free", None,       2, 5),
             ("abimcon.user05@gmail.com","ABIM-5MQE-TU6G-X005","Abimcon User 05","editor", "pro",  expiry_pro, 2, 100),
@@ -974,7 +974,7 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._json(200, {"ok": True})
 
-    # ══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
     # ── Plan Feature Management ───────────────────────────────────────────────
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -999,7 +999,7 @@ class Handler(BaseHTTPRequestHandler):
         conn = get_db()
         rows = conn.execute(
             "SELECT plan_type, feature_key, label, enabled, sort_order "
-            "FROM plan_features ORDER BY sort_order, feature_key"
+            "FROM plan_features ORDER BY so ORDER BY sort_order, feature_key"
         ).fetchall()
         conn.close()
 
@@ -1116,7 +1116,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ══════════════════════════════════════════════════════════════════════════
     # ── AssetBrowser JS Endpoints (v3.1) ──────────────────────────────────────
-    # ══════════════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════════════
 
     def _license_by_key(self, key):
         """Validate a raw license key string. Returns (row, None) or (None, error_dict)."""
@@ -1150,7 +1150,7 @@ class Handler(BaseHTTPRequestHandler):
         conn = get_db()
         if plan == "pro":
             rows = conn.execute(
-                "SELECT model_id, name, description, category, tags, thumbnail, "
+                "SELECT model_id, name, description, categon, category, tags, thumbnail, "
                 "file_size_mb, plan_required FROM models WHERE active=1 ORDER BY category, name"
             ).fetchall()
         else:
@@ -1220,7 +1220,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             conn.commit()
 
-        # ── Daily download limit ─────────────────────────────────────────────
+        # ── Daily download limit ────────────────────────────────────────────
         daily_limit  = lic["daily_download_limit"]
         if daily_limit is None:
             daily_limit = PLAN_DAILY_LIMITS.get(plan, 5)
@@ -1234,7 +1234,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(429, {
                 "ok":    False,
                 "error": f"Daily download limit reached ({daily_limit}/day). Resets at midnight UTC.",
-                "code":  "DAILY_LIMIT",
+                "code":  "DA"DAILY_LIMIT",
                 "limit": daily_limit,
                 "used":  today_count,
             }); return
@@ -1442,11 +1442,10 @@ if __name__ == "__main__":
     init_db()
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[AbimconStudio V3] Server v3 running → http://0.0.0.0:{PORT}")
-    print(f"[AbimconStudio V3] Admin panel       → hw")
+    print(f"[AbimconStudio V3] Admin panel       → http://localhost:{PORT}")
     print(f"[AbimconStudio V3] Admin password    → {ADMIN_PASS}")
     print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[Ab
         print("\n[AbimconStudio V3] Stopped.")
