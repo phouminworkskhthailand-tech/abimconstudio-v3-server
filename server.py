@@ -508,6 +508,7 @@ class Handler(BaseHTTPRequestHandler):
         if   path == "/api/admin/login":           self._admin_login()
         elif path == "/api/validate":               self._validate_license()
         elif path == "/api/license-info":           self._license_info()
+        elif path == "/api/deactivate-device":      self._deactivate_device()
         elif path == "/api/download-model":         self._download_model()
         elif path == "/api/download":               self._download()        # ← AssetBrowser JS endpoint
         elif path == "/api/admin/licenses":         self._add_license()
@@ -731,6 +732,37 @@ class Handler(BaseHTTPRequestHandler):
             "current_hwid":  hwid,
             "hwid_list":     hwid_list,
         })
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── Deactivate Device Endpoint ────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _deactivate_device(self):
+        """POST /api/deactivate-device
+        Headers: Authorization: Bearer <session_token>
+        Body:    { "hwid": "..." }
+        Removes the HWID from registered_hwids so the device slot is freed."""
+        payload = self._require_auth()
+        if not payload: return
+        body = self._body()
+        hwid = body.get("hwid", "").strip()
+        if not hwid:
+            self._json(400, {"ok": False, "error": "Missing hwid"}); return
+        lid = payload.get("lid", "")
+        if not lid:
+            self._json(401, {"ok": False, "error": "Invalid token"}); return
+        conn = get_db()
+        result = conn.execute(
+            "DELETE FROM registered_hwids WHERE license_id=? AND hwid=?", (lid, hwid)
+        )
+        conn.commit()
+        removed = result.rowcount > 0
+        conn.close()
+        self._log_activity(payload.get("sub", "?"), "device_deactivated", removed, hwid)
+        if removed:
+            self._json(200, {"ok": True, "message": "Device deactivated successfully."})
+        else:
+            self._json(404, {"ok": False, "error": "Device not found for this license."})
 
     # ══════════════════════════════════════════════════════════════════════════
     # ── Secure Download Endpoint ──────────────────────────────────────────────
