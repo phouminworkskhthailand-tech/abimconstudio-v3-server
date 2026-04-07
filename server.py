@@ -507,6 +507,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if   path == "/api/admin/login":           self._admin_login()
         elif path == "/api/validate":               self._validate_license()
+        elif path == "/api/license-info":           self._license_info()
         elif path == "/api/download-model":         self._download_model()
         elif path == "/api/download":               self._download()        # ← AssetBrowser JS endpoint
         elif path == "/api/admin/licenses":         self._add_license()
@@ -680,6 +681,55 @@ class Handler(BaseHTTPRequestHandler):
             "expiry_date":   expiry_str,
             "days_remaining": days_remaining,
             "max_devices":   row["max_devices"] if row["max_devices"] else 2,
+        })
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── License Info Endpoint (Settings Hub) ─────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _license_info(self):
+        """POST /api/license-info  { gmail, license_key, hwid }
+        Returns full license info including expiry_date for Settings Hub."""
+        body  = self._body()
+        gmail = body.get("gmail", "").strip().lower()
+        key   = body.get("license_key", "").strip()
+        hwid  = body.get("hwid", "").strip()
+        if not gmail or not key:
+            self._json(400, {"ok": False, "error": "Missing credentials"}); return
+        conn = get_db()
+        row  = conn.execute(
+            "SELECT * FROM licenses WHERE gmail=? AND license_key=? AND active=1",
+            (gmail, key)
+        ).fetchone()
+        if not row:
+            conn.close()
+            self._json(401, {"ok": False, "error": "Invalid credentials"}); return
+        expiry_str     = row["expiry_date"] if row["expiry_date"] else None
+        days_remaining = None
+        if expiry_str:
+            try:
+                from datetime import date as _date_cls
+                exp            = _date_cls.fromisoformat(expiry_str)
+                days_remaining = (exp - _date_cls.today()).days
+            except Exception:
+                pass
+        hw_rows  = conn.execute(
+            "SELECT hwid FROM registered_hwids WHERE license_id=?", (row["id"],)
+        ).fetchall()
+        hwid_list = [r["hwid"] for r in hw_rows]
+        conn.close()
+        self._json(200, {
+            "ok":            True,
+            "gmail":         row["gmail"],
+            "name":          row["name"],
+            "role":          row["role"],
+            "plan":          row["plan_type"],
+            "license_key":   row["license_key"],
+            "expiry_date":   expiry_str,
+            "days_remaining": days_remaining,
+            "max_devices":   row["max_devices"] if row["max_devices"] else 2,
+            "current_hwid":  hwid,
+            "hwid_list":     hwid_list,
         })
 
     # ══════════════════════════════════════════════════════════════════════════
