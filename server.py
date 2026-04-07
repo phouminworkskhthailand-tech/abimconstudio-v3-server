@@ -104,7 +104,7 @@ PLAN_DAILY_LIMITS = {"free": 5, "pro": 100, "trial": 50}
 
 # ââ Database âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
