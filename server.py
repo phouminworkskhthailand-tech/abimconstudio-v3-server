@@ -451,6 +451,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/admin/logs":           self._get_logs()
         elif path == "/api/admin/models":         self._get_models()
         elif path == "/api/admin/plan-features":  self._get_plan_features()
+        elif path == "/api/plan-features":        self._get_plan_features_public()
         elif path == "/api/models":               self._get_user_models()
         elif path == "/api/assets":               self._get_assets()   # â AssetBrowser JS endpoint
         else:
@@ -937,6 +938,21 @@ class Handler(BaseHTTPRequestHandler):
     # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
     # ââ Plan Feature Management âââââââââââââââââââââââââââââââââââââââââââââââ
     # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+        def _get_plan_features_public(self):
+        """GET /api/plan-features?plan=pro -- no auth, for SketchUp extension."""
+        qs = parse_qs(urlparse(self.path).query)
+        plan_type = qs.get("plan", ["free"])[0].strip().lower()
+        if not re.match(r'^[a-z0-9_]+$', plan_type):
+            self._json(400, {"error": "Invalid plan"}); return
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT feature_key, enabled FROM plan_features WHERE plan_type=?",
+            (plan_type,)
+        ).fetchall()
+        conn.close()
+        features = {r["feature_key"]: bool(r["enabled"]) for r in rows}
+        self._json(200, {"plan": plan_type, "features": features})
 
     def _get_plan_features(self):
         """GET /api/admin/plan-features â return feature matrix for admin UI."""
