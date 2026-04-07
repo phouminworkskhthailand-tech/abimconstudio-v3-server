@@ -104,7 +104,7 @@ PLAN_DAILY_LIMITS = {"free": 5, "pro": 100, "trial": 50}
 
 # ââ Database âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=5)
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -361,7 +361,7 @@ def verify_token(token):
 
 # ââ Admin Panel HTML ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 _admin_path = os.path.join(os.path.dirname(__file__), "admin.html")
-ADMIN_HTML  = open(_admin_path, encoding="utf-8").read() if os.path.exists(_admin_path) \
+ADMIN_HTML  = open(_admin_path).read() if os.path.exists(_admin_path) \
               else "<h1>Admin panel not found</h1>"
 
 # ââ HTTP Handler ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
@@ -939,8 +939,8 @@ class Handler(BaseHTTPRequestHandler):
     # ââ Plan Feature Management âââââââââââââââââââââââââââââââââââââââââââââââ
     # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
-        def _get_plan_features_public(self):
-        """GET /api/plan-features?plan=pro -- no auth, for SketchUp extension."""
+    def _get_plan_features_public(self):
+        """GET /api/plan-features?plan=pro â no auth, for SketchUp extension."""
         qs = parse_qs(urlparse(self.path).query)
         plan_type = qs.get("plan", ["free"])[0].strip().lower()
         if not re.match(r'^[a-z0-9_]+$', plan_type):
@@ -1325,7 +1325,7 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[R2] list_objects error: {e}")
             self._json(500, {"ok": False, "error": f"R2 scan failed: {e}"})
 
-    # ââ Model Admin Handlers âââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ Model Admin Handlers ââââââââââââââââââââââââââââââââââââââââââââââââââ
     # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
     def _get_models(self):
@@ -1403,7 +1403,7 @@ if __name__ == "__main__":
     init_db()
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[AbimconStudio V3] Server v3 running â http://0.0.0.0:{PORT}")
-    print(f"[AbimconStudio V3] Admin panel       â http://localhost:{PORT}")
+    print(f"[AbimconStudio V3] Admin panel       : http://localhost:{PORT}")
     print(f"[AbimconStudio V3] Admin password    â {ADMIN_PASS}")
     print(f"[AbimconStudio V3] R2 configured     â {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
     try:
