@@ -505,7 +505,7 @@ function renderExpiryBanner(rows) {
   chips.innerHTML = alerts.map(function(l) {
     var diff = Math.ceil((new Date(l.expiry_date) - new Date(today)) / 86400000);
     var label = diff < 0 ? l.name+' (EXPIRED)' : l.name+' ('+diff+'d left)';
-    return '<span class="eb-chip" onclick="renewLicense(''+l.id+'',''+esc(l.name)+'',''+esc(l.expiry_date||'')+'')">'+esc(label)+'</span>';
+    return '<span class="eb-chip" data-id="'+l.id+'" data-nm="'+esc(l.name)+'" data-exp="'+(l.expiry_date||'')+'" onclick="var d=this.dataset;renewLicense(d.id,d.nm,d.exp)">'+esc(label)+'</span>';
   }).join('');
 }
 
@@ -621,7 +621,7 @@ function renderTable(rows) {
       '<td style="white-space:nowrap"><div style="display:flex;gap:2px;flex-wrap:wrap">' +
         '<button class="btn btn-sm"     onclick="openEdit(\''+l.id+'\')">Edit</button>' +
         '<button class="btn '+(l.active?'btn-danger':'btn-success')+'" onclick="toggle(\''+l.id+'\','+(!l.active)+')">'+(l.active?'Suspend':'Activate')+'</button>' +
-        '<button class="btn btn-renew"  onclick="renewLicense(''+l.id+'',''+esc(l.name)+'',''+esc(l.expiry_date||'')+'')">🔄 Renew</button>' +
+        '<button class="btn btn-renew" data-id="'+l.id+'" data-nm="'+esc(l.name)+'" data-exp="'+(l.expiry_date||'')+'" onclick="var d=this.dataset;renewLicense(d.id,d.nm,d.exp)">🔄 Renew</button>' +
         '<button class="btn btn-warn"   onclick="resetHwid(\''+l.id+'\',\''+esc(l.name)+'\')">↺ HWID</button>' +
         '<button class="btn btn-info"   onclick="resetDl(\''+l.id+'\',\''+esc(l.name)+'\')">↺ DL</button>' +
         '<button class="btn btn-danger" onclick="del(\''+l.id+'\')">Del</button>' +
