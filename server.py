@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AbimconStudio V3 â License Management Server  v3
+AbimconStudio V3 — License Management Server  v3
 Pure Python + boto3 for Cloudflare R2 signed URLs.
 
 New in v3:
@@ -18,11 +18,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timezone, timedelta
 
-# ââ Input validation regexes âââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Input validation regexes ───────────────────────────────────────────────────
 _GMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 _KEY_RE   = re.compile(r'^ABIM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
-# ââ In-memory rate limiter âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── In-memory rate limiter ─────────────────────────────────────────────────────
 _rl_lock   = threading.Lock()
 _rl_store  = {}   # ip -> {attempts, window_start, locked_until}
 _RL_MAX    = 5    # max attempts per window
@@ -52,7 +52,7 @@ def _rl_reset(ip: str):
     with _rl_lock:
         _rl_store.pop(ip, None)
 
-# ââ Challenge / nonce store ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Challenge / nonce store ────────────────────────────────────────────────────
 _nc_lock  = threading.Lock()
 _nc_store = {}   # nonce -> expiry_timestamp
 _NC_TTL   = 45   # seconds a nonce is valid
@@ -75,16 +75,16 @@ def _nc_consume(nonce: str) -> bool:
         exp = _nc_store.pop(nonce, None)
     return exp is not None and exp > now
 
-# ââ boto3 for Cloudflare R2 signed URLs ââââââââââââââââââââââââââââââââââââââââ
+# ── boto3 for Cloudflare R2 signed URLs ────────────────────────────────────────
 try:
     import boto3
     from botocore.config import Config as BotoConfig
     HAS_BOTO3 = True
 except ImportError:
     HAS_BOTO3 = False
-    print("[WARN] boto3 not installed â /api/download-model will be disabled. Run: pip install boto3")
+    print("[WARN] boto3 not installed — /api/download-model will be disabled. Run: pip install boto3")
 
-# ââ Config âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Config ─────────────────────────────────────────────────────────────────────
 PORT       = int(os.environ.get("PORT", 8080))
 ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "abimcon_admin_2026")
 SECRET_KEY = os.environ.get("SECRET_KEY",     "abimcon_secret_key_v3_change_me")
@@ -102,7 +102,7 @@ R2_SIGNED_URL_TTL    = int(os.environ.get("R2_SIGNED_URL_TTL", 300))  # seconds 
 # Plan defaults
 PLAN_DAILY_LIMITS = {"free": 5, "pro": 100, "trial": 50}
 
-# ââ Database âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Database ───────────────────────────────────────────────────────────────────
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -113,7 +113,7 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # ââ Licenses ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Licenses ──────────────────────────────────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS licenses (
             id                  TEXT PRIMARY KEY,
@@ -131,7 +131,7 @@ def init_db():
         )
     """)
 
-    # ââ Registered HWIDs ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Registered HWIDs ──────────────────────────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS registered_hwids (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,7 +145,7 @@ def init_db():
         )
     """)
 
-    # ââ Models ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Models ────────────────────────────────────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS models (
             model_id    TEXT PRIMARY KEY,
@@ -158,7 +158,7 @@ def init_db():
         )
     """)
 
-    # ââ Download Logs (for daily limit tracking) âââââââââââââââââââââââââââââââ
+    # ── Download Logs (for daily limit tracking) ───────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS download_logs (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,7 +171,7 @@ def init_db():
         )
     """)
 
-    # ââ Activity log ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Activity log ──────────────────────────────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS activity_log (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -184,7 +184,7 @@ def init_db():
         )
     """)
 
-    # ââ Plan Features (feature flags per plan/role) âââââââââââââââââââââââââââ
+    # ── Plan Features (feature flags per plan/role) ───────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS plan_features (
             id          TEXT PRIMARY KEY,
@@ -225,14 +225,14 @@ def init_db():
                 (str(uuid.uuid4()), plan, fkey, label, enabled, sort)
             )
 
-    # ââ Idempotent migrations for existing DBs ââââââââââââââââââââââââââââââââ
+    # ── Idempotent migrations for existing DBs ────────────────────────────────
     migrations = [
         "ALTER TABLE licenses ADD COLUMN max_devices         INTEGER NOT NULL DEFAULT 2",
         "ALTER TABLE licenses ADD COLUMN plan_type           TEXT    NOT NULL DEFAULT 'free'",
         "ALTER TABLE licenses ADD COLUMN expiry_date         TEXT",
         "ALTER TABLE licenses ADD COLUMN daily_download_limit INTEGER",
         "ALTER TABLE activity_log ADD COLUMN hwid TEXT",
-        # v3.1 â new model columns for AssetBrowser UI
+        # v3.1 — new model columns for AssetBrowser UI
         "ALTER TABLE models ADD COLUMN category     TEXT    NOT NULL DEFAULT 'General'",
         "ALTER TABLE models ADD COLUMN tags         TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE models ADD COLUMN thumbnail    TEXT    NOT NULL DEFAULT ''",
@@ -246,7 +246,46 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
-    # ââ Seed licenses âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Idempotent plan_features seed/patch (runs every startup) ─────────────
+    # Ensures ALL feature keys exist for all plans regardless of DB age.
+    # Each (plan_type, feature_key) pair is upserted with the correct defaults.
+    required_features = [
+        # (plan_type, feature_key, label, enabled, sort_order)
+        ('pro',   'boq_input',         'BOQ Input',           1, 1),
+        ('pro',   'excel_sync',         'Excel Sync',          1, 2),
+        ('pro',   'asset_browser',      'Asset Browser',       1, 3),
+        ('pro',   'financial_report',   'BOQ Report',          1, 4),
+        ('pro',   'project_schedule',   'Project Schedule',    1, 5),
+        ('pro',   'project_todo',       'Project To-Do List',  1, 6),
+        ('pro',   'material_schedule',  'Material Schedule',   1, 7),
+        ('free',  'boq_input',          'BOQ Input',           1, 1),
+        ('free',  'excel_sync',          'Excel Sync',          0, 2),
+        ('free',  'asset_browser',       'Asset Browser',       0, 3),
+        ('free',  'financial_report',    'BOQ Report',          0, 4),
+        ('free',  'project_schedule',    'Project Schedule',    0, 5),
+        ('free',  'project_todo',        'Project To-Do List',  0, 6),
+        ('free',  'material_schedule',   'Material Schedule',   0, 7),
+        ('trial', 'boq_input',           'BOQ Input',           1, 1),
+        ('trial', 'excel_sync',           'Excel Sync',          1, 2),
+        ('trial', 'asset_browser',        'Asset Browser',       1, 3),
+        ('trial', 'financial_report',     'BOQ Report',          1, 4),
+        ('trial', 'project_schedule',     'Project Schedule',    1, 5),
+        ('trial', 'project_todo',         'Project To-Do List',  1, 6),
+        ('trial', 'material_schedule',    'Material Schedule',   1, 7),
+    ]
+    for plan, fkey, label, enabled, sort in required_features:
+        exists = c.execute(
+            "SELECT COUNT(*) FROM plan_features WHERE plan_type=? AND feature_key=?",
+            (plan, fkey)
+        ).fetchone()[0]
+        if exists == 0:
+            c.execute(
+                "INSERT INTO plan_features (id,plan_type,feature_key,label,enabled,sort_order) "
+                "VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4()), plan, fkey, label, enabled, sort)
+            )
+
+    # ── Seed licenses ─────────────────────────────────────────────────────────
     c.execute("SELECT COUNT(*) FROM licenses")
     if c.fetchone()[0] == 0:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -270,7 +309,7 @@ def init_db():
                 (str(uuid.uuid4()), gmail, key, name, role, plan, max_dev, ddl, expiry, now)
             )
 
-    # ââ Seed models âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Seed models ───────────────────────────────────────────────────────────
     c.execute("SELECT COUNT(*) FROM models")
     if c.fetchone()[0] == 0:
         now_m = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -294,13 +333,13 @@ def init_db():
     conn.close()
     print(f"[DB] Initialised at {DB_PATH}")
 
-# ââ Cloudflare R2 signed URL ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Cloudflare R2 signed URL ────────────────────────────────────────────────────
 def generate_r2_signed_url(r2_path: str, ttl: int = R2_SIGNED_URL_TTL,
                             bucket: str = None) -> str | None:
     if not HAS_BOTO3:
         return None
     if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]):
-        print("[R2] Missing credentials â set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY")
+        print("[R2] Missing credentials — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY")
         return None
     bucket = bucket or R2_BUCKET_NAME
     try:
@@ -327,11 +366,11 @@ def _sign_thumbnail(thumb: str) -> str:
     if not thumb:
         return ""
     if thumb.startswith("http://") or thumb.startswith("https://"):
-        return thumb   # already a full URL â return unchanged
+        return thumb   # already a full URL — return unchanged
     # treat as R2 key in the assets bucket (thumbnails/xxx.jpg)
     return generate_r2_signed_url(thumb, ttl=3600, bucket=R2_ASSETS_BUCKET) or ""
 
-# ââ JWT helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── JWT helpers ────────────────────────────────────────────────────────────────
 def _b64(data):
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -359,12 +398,12 @@ def verify_token(token):
     except Exception:
         return None
 
-# ââ Admin Panel HTML ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── Admin Panel HTML ────────────────────────────────────────────────────────────
 _admin_path = os.path.join(os.path.dirname(__file__), "admin.html")
 ADMIN_HTML  = open(_admin_path).read() if os.path.exists(_admin_path) \
               else "<h1>Admin panel not found</h1>"
 
-# ââ HTTP Handler ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# ── HTTP Handler ────────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
@@ -427,7 +466,7 @@ class Handler(BaseHTTPRequestHandler):
         )
         conn.commit(); conn.close()
 
-    # ââ CORS preflight ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── CORS preflight ──────────────────────────────────────────────────────────
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin",  "*")
@@ -435,7 +474,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
         self.end_headers()
 
-    # ââ GET âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── GET ─────────────────────────────────────────────────────────────────────
     def do_GET(self):
         path = urlparse(self.path).path.rstrip("/") or "/"
 
@@ -453,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/admin/plan-features":  self._get_plan_features()
         elif path == "/api/plan-features":        self._get_plan_features_public()
         elif path == "/api/models":               self._get_user_models()
-        elif path == "/api/assets":               self._get_assets()   # â AssetBrowser JS endpoint
+        elif path == "/api/assets":               self._get_assets()   # ← AssetBrowser JS endpoint
         else:
             m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
             m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
@@ -462,20 +501,20 @@ class Handler(BaseHTTPRequestHandler):
             elif m_dl:  self._get_download_stats(m_dl.group(1))
             else:       self._json(404, {"error": "Not found"})
 
-    # ââ POST ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── POST ────────────────────────────────────────────────────────────────────
     def do_POST(self):
         path = urlparse(self.path).path.rstrip("/")
 
         if   path == "/api/admin/login":           self._admin_login()
         elif path == "/api/validate":               self._validate_license()
         elif path == "/api/download-model":         self._download_model()
-        elif path == "/api/download":               self._download()        # â AssetBrowser JS endpoint
+        elif path == "/api/download":               self._download()        # ← AssetBrowser JS endpoint
         elif path == "/api/admin/licenses":         self._add_license()
         elif path == "/api/admin/models":           self._add_model()
         elif path == "/api/admin/plan-features":    self._add_plan_or_feature()
         else: self._json(404, {"error": "Not found"})
 
-    # ââ PUT âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── PUT ─────────────────────────────────────────────────────────────────────
     def do_PUT(self):
         path = urlparse(self.path).path.rstrip("/")
         if path == "/api/admin/plan-features":
@@ -488,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
                 if m2: self._update_model(m2.group(1))
                 else: self._json(404, {"error": "Not found"})
 
-    # ââ DELETE ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── DELETE ──────────────────────────────────────────────────────────────────
     def do_DELETE(self):
         path = urlparse(self.path).path.rstrip("/")
         m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
@@ -502,9 +541,9 @@ class Handler(BaseHTTPRequestHandler):
         elif m_mod: self._delete_model(m_mod.group(1))
         else:       self._json(404, {"error": "Not found"})
 
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââ Auth Handlers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── Auth Handlers ─────────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _admin_login(self):
         body = self._body()
@@ -518,7 +557,7 @@ class Handler(BaseHTTPRequestHandler):
     def _validate_license(self):
         client_ip = self._get_client_ip()
 
-        # ââ Rate limiting ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Rate limiting ────────────────────────────────────────────────────────
         if not _rl_check(client_ip):
             self._log_activity("?", "rate_limited", False)
             self._json(429, {
@@ -533,7 +572,7 @@ class Handler(BaseHTTPRequestHandler):
         hwid  = body.get("hwid", "").strip()
         nonce = body.get("nonce", "").strip()
 
-        # ââ Input validation âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Input validation ─────────────────────────────────────────────────────
         if not gmail or not key:
             self._json(400, {"ok": False, "error": "Missing credentials"}); return
         if not _GMAIL_RE.match(gmail):
@@ -541,10 +580,10 @@ class Handler(BaseHTTPRequestHandler):
         if not _KEY_RE.match(key):
             self._json(400, {"ok": False, "error": "Invalid license key format"}); return
 
-        # ââ Challenge-response nonce verification ââââââââââââââââââââââââââââââââ
+        # ── Challenge-response nonce verification ────────────────────────────────
         # If a nonce was provided, it must be valid (prevents replay attacks).
         # If no nonce provided, allow through for backward compatibility with
-        # older clients â once all clients are updated, make this mandatory.
+        # older clients — once all clients are updated, make this mandatory.
         if nonce and not _nc_consume(nonce):
             self._json(400, {
                 "ok": False,
@@ -563,7 +602,7 @@ class Handler(BaseHTTPRequestHandler):
             self._log_activity(gmail, "sketchup_login", False, hwid)
             self._json(401, {"ok": False, "error": "Invalid Gmail or License Key"}); return
 
-        # ââ Check expiry ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Check expiry ────────────────────────────────────────────────────────
         if row["expiry_date"]:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if row["expiry_date"] < today:
@@ -571,7 +610,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._log_activity(gmail, "license_expired", False, hwid)
                 self._json(403, {"ok": False, "error": "License expired. Contact your administrator.", "code": "EXPIRED"}); return
 
-        # ââ HWID enforcement ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── HWID enforcement ────────────────────────────────────────────────────
         max_dev   = row["max_devices"] if row["max_devices"] else 2
         client_ip = self._get_client_ip()
         now_ts    = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -626,9 +665,9 @@ class Handler(BaseHTTPRequestHandler):
             "token":    session_token,
         })
 
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââ Secure Download Endpoint ââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── Secure Download Endpoint ──────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _download_model(self):
         """
@@ -658,7 +697,7 @@ class Handler(BaseHTTPRequestHandler):
 
         conn = get_db()
 
-        # ââ Re-verify license is still active & not expired âââââââââââââââââ
+        # ── Re-verify license is still active & not expired ─────────────────
         lic = conn.execute("SELECT * FROM licenses WHERE id=? AND active=1", (lid,)).fetchone()
         if not lic:
             conn.close()
@@ -670,7 +709,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
                 self._json(403, {"ok": False, "error": "License expired.", "code": "EXPIRED"}); return
 
-        # ââ Verify HWID is registered for this license âââââââââââââââââââââââ
+        # ── Verify HWID is registered for this license ───────────────────────
         if hwid:
             hw_row = conn.execute(
                 "SELECT 1 FROM registered_hwids WHERE license_id=? AND hwid=?", (lid, hwid)
@@ -680,7 +719,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._log_activity(gmail, "download_hwid_mismatch", False, hwid)
                 self._json(403, {"ok": False, "error": "Device not registered for this license.", "code": "HWID_MISMATCH"}); return
 
-        # ââ Check daily download limit âââââââââââââââââââââââââââââââââââââââ
+        # ── Check daily download limit ───────────────────────────────────────
         daily_limit = lic["daily_download_limit"]
         if daily_limit is None:
             daily_limit = PLAN_DAILY_LIMITS.get(lic["plan_type"], 5)
@@ -701,7 +740,7 @@ class Handler(BaseHTTPRequestHandler):
                 "used":  today_count,
             }); return
 
-        # ââ Resolve model â R2 path & bucket âââââââââââââââââââââââââââââââââ
+        # ── Resolve model → R2 path & bucket ─────────────────────────────────
         # model_id can be either:
         #   (a) A raw R2 path from abimcon-assets  e.g. "SN/house.skp"
         #   (b) A legacy DB UUID from abimcon-models
@@ -710,7 +749,7 @@ class Handler(BaseHTTPRequestHandler):
         model_name = model_id  # fallback display name
 
         if "/" in model_id or model_id.lower().endswith(".skp"):
-            # ââ Direct R2 path (abimcon-assets dynamic scan) ââââââââââââââ
+            # ── Direct R2 path (abimcon-assets dynamic scan) ──────────────
             r2_key    = model_id
             r2_bucket = R2_ASSETS_BUCKET
             base_filename = model_id.split("/")[-1]
@@ -725,7 +764,7 @@ class Handler(BaseHTTPRequestHandler):
                     "code": "PLAN_REQUIRED"
                 }); return
         else:
-            # ââ Legacy DB lookup (abimcon-models bucket) ââââââââââââââââââ
+            # ── Legacy DB lookup (abimcon-models bucket) ──────────────────
             model = conn.execute("SELECT * FROM models WHERE model_id=?", (model_id,)).fetchone()
             if not model:
                 conn.close()
@@ -733,7 +772,7 @@ class Handler(BaseHTTPRequestHandler):
             keys = model.keys()
             model_plan = model["plan_required"] if "plan_required" in keys else ("pro" if model["is_premium"] else "free")
             if model_plan == "pro" and lic["plan_type"] != "pro":
-                conn.close()
+                         conn.close()
                 self._json(403, {
                     "ok": False, "error": "This model requires a Pro plan. Please upgrade.",
                     "code": "PLAN_REQUIRED"
@@ -742,13 +781,13 @@ class Handler(BaseHTTPRequestHandler):
             r2_bucket = R2_BUCKET_NAME
             model_name = model["name"]
 
-        # ââ Generate signed URL ââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Generate signed URL ──────────────────────────────────────────────
         signed_url = generate_r2_signed_url(r2_key, bucket=r2_bucket)
         if not signed_url:
             conn.close()
             self._json(503, {"ok": False, "error": "Download service unavailable. R2 not configured."}); return
 
-        # ââ Log the download âââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Log the download ─────────────────────────────────────────────────
         now_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         conn.execute(
             "INSERT INTO download_logs (license_id,model_id,downloaded_at,ip_addr,hwid) VALUES (?,?,?,?,?)",
@@ -767,9 +806,9 @@ class Handler(BaseHTTPRequestHandler):
             "limit_today": daily_limit,
         })
 
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââ License Admin Handlers ââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── License Admin Handlers ────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _get_licenses(self):
         if not self._require_admin(): return
@@ -804,7 +843,7 @@ class Handler(BaseHTTPRequestHandler):
             "total":        len(lics),
             "active":       sum(1 for l in lics if l["active"]),
             "suspended":    sum(1 for l in lics if not l["active"]),
-            "total_logins": logs["n"] if logs else 0,
+            "tns": logs["n"] if logs else 0,
         })
 
     def _get_logs(self):
@@ -935,12 +974,12 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._json(200, {"ok": True})
 
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââ Plan Feature Management âââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── Plan Feature Management ───────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _get_plan_features_public(self):
-        """GET /api/plan-features?plan=pro â no auth, for SketchUp extension."""
+        """GET /api/plan-features?plan=pro — no auth, for SketchUp extension."""
         qs = parse_qs(urlparse(self.path).query)
         plan_type = qs.get("plan", ["free"])[0].strip().lower()
         if not re.match(r'^[a-z0-9_]+$', plan_type):
@@ -955,7 +994,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"plan": plan_type, "features": features})
 
     def _get_plan_features(self):
-        """GET /api/admin/plan-features â return feature matrix for admin UI."""
+        """GET /api/admin/plan-features — return feature matrix for admin UI."""
         if not self._require_admin(): return
         conn = get_db()
         rows = conn.execute(
@@ -984,7 +1023,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"plans": plans, "features": features, "matrix": matrix})
 
     def _update_plan_feature(self):
-        """PUT /api/admin/plan-features â toggle one feature for one plan."""
+        """PUT /api/admin/plan-features — toggle one feature for one plan."""
         if not self._require_admin(): return
         body        = self._body()
         plan_type   = body.get("plan_type",   "").strip()
@@ -1017,7 +1056,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True})
 
     def _add_plan_or_feature(self):
-        """POST /api/admin/plan-features â add a new plan or a new feature key.
+        """POST /api/admin/plan-features — add a new plan or a new feature key.
         Body: { "action": "add_plan",    "plan_type": "enterprise", "default_enabled": true }
            or { "action": "add_feature", "feature_key": "reports",  "label": "Reports" }
         """
@@ -1075,9 +1114,9 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             self._json(400, {"error": "action must be 'add_plan' or 'add_feature'"})
 
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââ AssetBrowser JS Endpoints (v3.1) ââââââââââââââââââââââââââââââââââââââ
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── AssetBrowser JS Endpoints (v3.1) ──────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _license_by_key(self, key):
         """Validate a raw license key string. Returns (row, None) or (None, error_dict)."""
@@ -1154,7 +1193,7 @@ class Handler(BaseHTTPRequestHandler):
 
         conn = get_db()
 
-        # ââ HWID: register new devices, enforce device limit âââââââââââââââââ
+        # ── HWID: register new devices, enforce device limit ─────────────────
         if hwid:
             hw_rows = conn.execute(
                 "SELECT hwid FROM registered_hwids WHERE license_id=?", (lid,)
@@ -1181,7 +1220,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             conn.commit()
 
-        # ââ Daily download limit âââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Daily download limit ─────────────────────────────────────────────
         daily_limit  = lic["daily_download_limit"]
         if daily_limit is None:
             daily_limit = PLAN_DAILY_LIMITS.get(plan, 5)
@@ -1200,26 +1239,26 @@ class Handler(BaseHTTPRequestHandler):
                 "used":  today_count,
             }); return
 
-        # ââ Get model ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Get model ────────────────────────────────────────────────────────
         model = conn.execute("SELECT * FROM models WHERE model_id=?", (model_id,)).fetchone()
         if not model:
             conn.close()
             self._json(404, {"ok": False, "error": "Model not found.", "code": "MODEL_NOT_FOUND"}); return
 
-        # ââ Plan check âââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Plan check ───────────────────────────────────────────────────────
         keys = model.keys()
         model_plan = model["plan_required"] if "plan_required" in keys else ("pro" if model["is_premium"] else "free")
         if model_plan == "pro" and plan != "pro":
             conn.close()
             self._json(403, {"ok": False, "error": "This model requires a Pro plan. Please upgrade.", "code": "PLAN_REQUIRED"}); return
 
-        # ââ Generate R2 signed URL âââââââââââââââââââââââââââââââââââââââââââ
+        # ── Generate R2 signed URL ───────────────────────────────────────────
         signed_url = generate_r2_signed_url(model["r2_path"])
         if not signed_url:
             conn.close()
             self._json(503, {"ok": False, "error": "Download service unavailable. R2 not configured."}); return
 
-        # ââ Log the download âââââââââââââââââââââââââââââââââââââââââââââââââ
+        # ── Log the download ─────────────────────────────────────────────────
         conn.execute(
             "INSERT INTO download_logs (license_id,model_id,downloaded_at,ip_addr,hwid) VALUES (?,?,?,?,?)",
             (lid, model_id, now_ts, client_ip, hwid or None)
@@ -1236,8 +1275,8 @@ class Handler(BaseHTTPRequestHandler):
             "limit_today": daily_limit,
         })
 
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââ User-facing Model List ââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── User-facing Model List ────────────────────────────────────────────────
     # GET /api/models
     # Requires: Authorization: Bearer <session_token>
     # Returns models filtered by the user's plan (free sees free only, pro sees all).
@@ -1269,8 +1308,8 @@ class Handler(BaseHTTPRequestHandler):
                 region_name           = "auto",
             )
 
-            # ââ Single-pass: collect ALL bucket keys + sizes ââââââââââââââ
-            all_objects = {}   # key â size_bytes
+            # ── Single-pass: collect ALL bucket keys + sizes ──────────────
+            all_objects = {}   # key → size_bytes
             paginator   = s3.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=R2_ASSETS_BUCKET):
                 for obj in page.get("Contents", []):
@@ -1290,7 +1329,7 @@ class Handler(BaseHTTPRequestHandler):
                 filename = parts[-1]
                 name     = filename[:-4]   # strip .skp extension
 
-                # Folders named "pro" (case-insensitive) â pro-only models
+                # Folders named "pro" (case-insensitive) → pro-only models
                 plan_required = "pro" if category.lower() == "pro" else "free"
 
                 # Free users don't see pro-only models
@@ -1304,7 +1343,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif base_key + ".png" in all_keys:
                     thumb_url = generate_r2_signed_url(base_key + ".png", ttl=3600, bucket=R2_ASSETS_BUCKET) or ""
                 else:
-                    thumb_url = ""   # no thumbnail â HTML shows placeholder
+                    thumb_url = ""   # no thumbnail → HTML shows placeholder
 
                 models_out.append({
                     "model_id":      key,           # R2 path used as unique ID
@@ -1325,8 +1364,8 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[R2] list_objects error: {e}")
             self._json(500, {"ok": False, "error": f"R2 scan failed: {e}"})
 
-    # ââ Model Admin Handlers ââââââââââââââââââââââââââââââââââââââââââââââââââ
-    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ── Model Admin Handlers ──────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
 
     def _get_models(self):
         if not self._require_admin(): return
@@ -1402,10 +1441,10 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     init_db()
     server = HTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"[AbimconStudio V3] Server v3 running â http://0.0.0.0:{PORT}")
-    print(f"[AbimconStudio V3] Admin panel       : http://localhost:{PORT}")
-    print(f"[AbimconStudio V3] Admin password    â {ADMIN_PASS}")
-    print(f"[AbimconStudio V3] R2 configured     â {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
+    print(f"[AbimconStudio V3] Server v3 running → http://0.0.0.0:{PORT}")
+    print(f"[AbimconStudio V3] Admin panel       → http://localhost:{PORT}")
+    print(f"[AbimconStudio V3] Admin password    → {ADMIN_PASS}")
+    print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
