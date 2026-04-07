@@ -66,6 +66,13 @@ tr:hover td{background:#162032}
 .expiry-ok{color:#4ade80;font-size:.78rem}
 .expiry-warn{color:#fbbf24;font-size:.78rem}
 .expiry-expired{color:#f87171;font-size:.78rem;font-weight:700}
+.expiry-banner{display:none;background:linear-gradient(90deg,#7c2d12,#92400e);border:1px solid #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:.88rem;color:#fef3c7}
+.expiry-banner .eb-title{font-weight:700;font-size:.95rem;margin-bottom:6px}
+.expiry-banner .eb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.expiry-banner .eb-chip{background:rgba(0,0,0,.35);border-radius:6px;padding:3px 10px;font-size:.8rem;cursor:pointer;border:1px solid #f59e0b;color:#fef3c7}
+.expiry-banner .eb-chip:hover{background:rgba(245,158,11,.25)}
+.btn-renew{background:#16a34a;color:#fff;padding:5px 11px;font-size:.8rem;border:none;border-radius:6px;cursor:pointer}
+.btn-renew:hover{background:#15803d}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;justify-content:center;align-items:flex-start;padding-top:40px;overflow-y:auto}
 .modal-overlay.show{display:flex}
 .modal{background:#1e293b;border-radius:16px;padding:32px;width:100%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,.5);margin:auto}
@@ -159,6 +166,11 @@ input:disabled+.toggle-slider{opacity:.4;cursor:not-allowed}
         <div class="toolbar">
           <input type="text" id="search" placeholder="Search by name, email, key, plan…" oninput="filterTable()">
           <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
+        </div>
+        <div id="expiry-banner" class="expiry-banner">
+          <div class="eb-title">⚠️ Licenses Expiring Soon or Already Expired</div>
+          <span style="color:#fde68a;font-size:.82rem">Click a name below to quickly renew:</span>
+          <div class="eb-chips" id="expiry-banner-chips"></div>
         </div>
         <div id="tbl-err" class="alert alert-error"></div>
         <div id="tbl-ok"  class="alert alert-success"></div>
@@ -476,6 +488,88 @@ async function loadLicenses() {
   document.getElementById('s-suspended').textContent = res.data.suspended ?? '';
   document.getElementById('s-logins').textContent    = res.data.total_logins ?? '-';
   renderTable(licenses);
+  renderExpiryBanner(licenses);
+}
+
+function renderExpiryBanner(rows) {
+  var today  = new Date().toISOString().substring(0,10);
+  var alerts = rows.filter(function(l) {
+    if (!l.expiry_date) return false;
+    var diff = Math.ceil((new Date(l.expiry_date) - new Date(today)) / 86400000);
+    return diff <= 30;
+  });
+  var banner = document.getElementById('expiry-banner');
+  var chips  = document.getElementById('expiry-banner-chips');
+  if (!alerts.length) { banner.style.display='none'; return; }
+  banner.style.display = '';
+  chips.innerHTML = alerts.map(function(l) {
+    var diff = Math.ceil((new Date(l.expiry_date) - new Date(today)) / 86400000);
+    var label = diff < 0 ? l.name+' (EXPIRED)' : l.name+' ('+diff+'d left)';
+    return '<span class="eb-chip" onclick="renewLicense(''+l.id+'',''+esc(l.name)+'',''+esc(l.expiry_date||'')+'')">'+esc(label)+'</span>';
+  }).join('');
+}
+
+async function renewLicense(id, name, currentExpiry) {
+  var today  = new Date().toISOString().substring(0,10);
+  var base   = (currentExpiry && currentExpiry > today) ? currentExpiry : today;
+  var defDate = addDays(base, 365);
+  var html =
+    '<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:22px;min-width:320px;max-width:420px">' +
+    '<h3 style="margin:0 0 4px;color:#f8fafc">🔄 Renew License</h3>' +
+    '<p style="margin:0 0 14px;color:#94a3b8;font-size:.85rem">'+esc(name)+(currentExpiry?'<br>Current expiry: <span style="color:#fbbf24">'+currentExpiry+'</span>':'<br><em>No expiry set</em>')+'</p>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">' +
+      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',30)">+30 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',90)">+90 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',180)">+180 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',365)">+1 Year</button>' +
+    '</div>' +
+    '<hr style="border-color:#334155;margin:12px 0">' +
+    '<label style="font-size:.83rem;color:#94a3b8">Or pick a specific date:</label><br>' +
+    '<input type="date" id="renew-date" value="'+defDate+'" min="'+today+'" style="margin-top:6px;padding:7px 10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:.9rem;width:100%"><br>' +
+    '<button class="btn btn-renew" style="margin-top:10px;width:100%" onclick="doRenewDate(''+id+'')">Set This Date</button>' +
+    '<button class="btn btn-sm"    style="margin-top:8px;width:100%;background:#334155" onclick="closeRenewModal()">Cancel</button>' +
+    '</div>';
+  var overlay = document.createElement('div');
+  overlay.id  = 'renew-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+}
+function addDays(isoDate, n) {
+  var d = new Date(isoDate);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().substring(0,10);
+}
+function closeRenewModal() {
+  var el = document.getElementById('renew-overlay');
+  if (el) el.remove();
+}
+async function quickRenew(id, base, days) {
+  closeRenewModal();
+  var newExpiry = addDays(base, days);
+  await applyRenew(id, newExpiry);
+}
+async function doRenewDate(id) {
+  var d = document.getElementById('renew-date').value;
+  if (!d) return;
+  closeRenewModal();
+  await applyRenew(id, d);
+}
+async function applyRenew(id, newExpiry) {
+  var res = await api('POST', '/api/admin/licenses/'+id+'/extend', { expiry_date: newExpiry });
+  var ok  = document.getElementById('tbl-ok');
+  var err = document.getElementById('tbl-err');
+  if (res.ok) {
+    ok.textContent  = '✅ License renewed → new expiry: ' + newExpiry;
+    ok.style.display = '';
+    err.style.display = 'none';
+    await loadLicenses();
+    setTimeout(function(){ ok.style.display='none'; }, 4000);
+  } else {
+    err.textContent  = '❌ Renew failed: ' + (res.data && res.data.error || res.status);
+    err.style.display = '';
+    ok.style.display  = 'none';
+  }
 }
 
 function expiryDisplay(d) {
@@ -527,6 +621,7 @@ function renderTable(rows) {
       '<td style="white-space:nowrap"><div style="display:flex;gap:2px;flex-wrap:wrap">' +
         '<button class="btn btn-sm"     onclick="openEdit(\''+l.id+'\')">Edit</button>' +
         '<button class="btn '+(l.active?'btn-danger':'btn-success')+'" onclick="toggle(\''+l.id+'\','+(!l.active)+')">'+(l.active?'Suspend':'Activate')+'</button>' +
+        '<button class="btn btn-renew"  onclick="renewLicense(''+l.id+'',''+esc(l.name)+'',''+esc(l.expiry_date||'')+'')">🔄 Renew</button>' +
         '<button class="btn btn-warn"   onclick="resetHwid(\''+l.id+'\',\''+esc(l.name)+'\')">↺ HWID</button>' +
         '<button class="btn btn-info"   onclick="resetDl(\''+l.id+'\',\''+esc(l.name)+'\')">↺ DL</button>' +
         '<button class="btn btn-danger" onclick="del(\''+l.id+'\')">Del</button>' +
