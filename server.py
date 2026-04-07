@@ -22,7 +22,7 @@ from datetime import datetime, timezone, timedelta
 _GMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 _KEY_RE   = re.compile(r'^ABIM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
-# ── In-memory rate limiter ─────────────────────────────────────────────────────
+# ── In-memory rate limiter ─────────────h────────────────────────────────────────
 _rl_lock   = threading.Lock()
 _rl_store  = {}   # ip -> {attempts, window_start, locked_until}
 _RL_MAX    = 5    # max attempts per window
@@ -512,7 +512,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/admin/licenses":         self._add_license()
         elif path == "/api/admin/models":           self._add_model()
         elif path == "/api/admin/plan-features":    self._add_plan_or_feature()
-        else: self._json(404, {"error": "Not found"})
+        else:
+            m_ext = re.match(r"^/api/admin/licenses/([^/]+)/extend$", path)
+            if m_ext: self._extend_license(m_ext.group(1))
+            else:     self._json(404, {"error": "Not found"})
 
     # ── PUT ─────────────────────────────────────────────────────────────────────
     def do_PUT(self):
@@ -656,13 +659,27 @@ class Handler(BaseHTTPRequestHandler):
             {"sub": gmail, "role": row["role"], "lid": row["id"], "plan": row["plan_type"]},
             expires_in=28800
         )
+        # ── Compute days remaining until expiry ─────────────────────────────────────────
+        expiry_str     = row["expiry_date"] if row["expiry_date"] else None
+        days_remaining = None
+        if expiry_str:
+            try:
+                from datetime import date as _date_cls
+                exp            = _date_cls.fromisoformat(expiry_str)
+                days_remaining = (exp - _date_cls.today()).days
+            except Exception:
+                pass
+
         self._json(200, {
-            "ok":       True,
-            "name":     row["name"],
-            "role":     row["role"],
-            "plan":     row["plan_type"],
-            "features": features,
-            "token":    session_token,
+            "ok":            True,
+            "name":          row["name"],
+            "role":          row["role"],
+            "plan":          row["plan_type"],
+            "features":      features,
+            "token":         session_token,
+            "expiry_date":   expiry_str,
+            "days_remaining": days_remaining,
+            "max_devices":   row["max_devices"] if row["max_devices"] else 2,
         })
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -964,6 +981,40 @@ class Handler(BaseHTTPRequestHandler):
             self._json(409, {"error": f"Duplicate: {e}"})
         finally:
             conn.close()
+
+    def _extend_license(self, lid):
+        """POST /api/admin/licenses/:id/extend  { "days": 90 }  OR  { "expiry_date": "2027-01-01" }"""
+        if not self._require_admin(): return
+        body = self._body()
+        from datetime import date as _date_cls, timedelta as _td
+        conn = get_db()
+        row  = conn.execute("SELECT expiry_date FROM licenses WHERE id=?", (lid,)).fetchone()
+        if not row:
+            conn.close()
+            self._json(404, {"error": "License not found"}); return
+
+        if "expiry_date" in body and body["expiry_date"]:
+            new_expiry = body["expiry_date"].strip()
+        elif "days" in body:
+            try:
+                days = int(body["days"])
+            except (ValueError, TypeError):
+                self._json(400, {"error": "days must be an integer"}); return
+            base = _date_cls.today()
+            if row["expiry_date"]:
+                try:
+                    existing = _date_cls.fromisoformat(row["expiry_date"])
+                    if existing > base:
+                        base = existing
+                except Exception: pass
+            new_expiry = (base + _td(days=days)).isoformat()
+        else:
+            conn.close()
+            self._json(400, {"error": "Provide 'days' or 'expiry_date'"}); return
+
+        conn.execute("UPDATE licenses SET expiry_date=? WHERE id=?", (new_expiry, lid))
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "expiry_date": new_expiry})
 
     def _delete_license(self, lid):
         if not self._require_admin(): return
