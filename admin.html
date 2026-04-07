@@ -510,50 +510,44 @@ function renderExpiryBanner(rows) {
 }
 
 async function renewLicense(id, name, currentExpiry) {
-  var today  = new Date().toISOString().substring(0,10);
-  var base   = (currentExpiry && currentExpiry > today) ? currentExpiry : today;
-  var defDate = addDays(base, 365);
+  var today = new Date().toISOString().substring(0,10);
+  window._rnwId   = id;
+  window._rnwBase = (currentExpiry && currentExpiry > today) ? currentExpiry : today;
+  var defDate = addDays(window._rnwBase, 365);
   var html =
     '<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:22px;min-width:320px;max-width:420px">' +
     '<h3 style="margin:0 0 4px;color:#f8fafc">🔄 Renew License</h3>' +
-    '<p style="margin:0 0 14px;color:#94a3b8;font-size:.85rem">'+esc(name)+(currentExpiry?'<br>Current expiry: <span style="color:#fbbf24">'+currentExpiry+'</span>':'<br><em>No expiry set</em>')+'</p>' +
+    '<p style="margin:0 0 14px;color:#94a3b8;font-size:.85rem">' + esc(name) +
+      (currentExpiry
+        ? '<br>Current expiry: <span style="color:#fbbf24">' + currentExpiry + '</span>'
+        : '<br><em>No expiry set</em>') + '</p>' +
     '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">' +
-      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',30)">+30 Days</button>' +
-      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',90)">+90 Days</button>' +
-      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',180)">+180 Days</button>' +
-      '<button class="btn btn-renew" onclick="quickRenew(''+id+'',''+base+'',365)">+1 Year</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(30)">+30 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(90)">+90 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(180)">+180 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(365)">+1 Year</button>' +
     '</div>' +
     '<hr style="border-color:#334155;margin:12px 0">' +
     '<label style="font-size:.83rem;color:#94a3b8">Or pick a specific date:</label><br>' +
-    '<input type="date" id="renew-date" value="'+defDate+'" min="'+today+'" style="margin-top:6px;padding:7px 10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:.9rem;width:100%"><br>' +
-    '<button class="btn btn-renew" style="margin-top:10px;width:100%" onclick="doRenewDate(''+id+'')">Set This Date</button>' +
-    '<button class="btn btn-sm"    style="margin-top:8px;width:100%;background:#334155" onclick="closeRenewModal()">Cancel</button>' +
+    '<input type="date" id="renew-date" value="' + defDate + '" min="' + today + '" style="margin-top:6px;padding:7px 10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:.9rem;width:100%"><br>' +
+    '<button class="btn btn-renew" style="margin-top:10px;width:100%" onclick="doRenewDate()">Set This Date</button>' +
+    '<button class="btn btn-sm" style="margin-top:8px;width:100%;background:#334155" onclick="closeRenewModal()">Cancel</button>' +
     '</div>';
   var overlay = document.createElement('div');
-  overlay.id  = 'renew-overlay';
+  overlay.id = 'renew-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML = html;
   document.body.appendChild(overlay);
 }
-function addDays(isoDate, n) {
-  var d = new Date(isoDate);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().substring(0,10);
-}
-function closeRenewModal() {
-  var el = document.getElementById('renew-overlay');
-  if (el) el.remove();
-}
-async function quickRenew(id, base, days) {
+async function quickRenew(days) {
   closeRenewModal();
-  var newExpiry = addDays(base, days);
-  await applyRenew(id, newExpiry);
+  await applyRenew(window._rnwId, addDays(window._rnwBase, days));
 }
-async function doRenewDate(id) {
+async function doRenewDate() {
   var d = document.getElementById('renew-date').value;
   if (!d) return;
   closeRenewModal();
-  await applyRenew(id, d);
+  await applyRenew(window._rnwId, d);
 }
 async function applyRenew(id, newExpiry) {
   var res = await api('POST', '/api/admin/licenses/'+id+'/extend', { expiry_date: newExpiry });
