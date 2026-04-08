@@ -1725,11 +1725,8 @@ class Handler(BaseHTTPRequestHandler):
             with _urllib_req.urlopen(req, timeout=55) as r:
                 resp_data = json.loads(r.read())
             ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
-                except _urllib_err.HTTPError as he:
-            body = he.read().decode("utf-8", errors="replace")
-            self._json(500, {"ok": False, "error": "Gemini " + str(he.code) + ": " + body[:400]}); return
-        except Exception as e:
-            self._json(500, {"ok": False, "error": "Gemini API error: " + str(e)}); return
+                except Exception as e:
+            self._json(500, {"ok": False, "error": f"Gemini API error: {str(e)}"}); return
 
         credits_after = self._ai_deduct_credits(gmail, AI_CHAT_COST, "chat", "Chat: "+user_message[:60])
         self._json(200, {"ok": True, "response": ai_text, "credits_after": credits_after})
