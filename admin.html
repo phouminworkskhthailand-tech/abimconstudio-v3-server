@@ -1113,7 +1113,7 @@ function renderWallets(list) {
   var rows = list || allWallets;
   var tbody = document.getElementById('ai-wallet-body');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" style="color:#64748b;text-align:center">No wallets yet.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(function(w,i) {
+  tbody.innerHTML = rows.map(function(w, i) {
     var bar = Math.min(100, Math.round(((w.total_used||0)/Math.max(1,w.total_purchased||1))*100));
     var bc  = bar>80?'#ef4444':bar>50?'#f59e0b':'#38bdf8';
     return '<tr>'+
@@ -1125,10 +1125,15 @@ function renderWallets(list) {
       '<td><span style="color:#f87171">'+(w.total_used||0)+'</span>'+
         '<div class="dl-bar" style="width:70px;margin-top:3px"><div class="dl-bar-fill" style="width:'+bar+'%;background:'+bc+'"></div></div></td>'+
       '<td style="color:#64748b;font-size:.75rem">'+(w.created_at||'').split('T')[0]+'</td>'+
-      '<td><button class="btn btn-success" style="font-size:.75rem;padding:3px 10px" onclick="quickAdd(''+((w.gmail||'').replace(/'/g,"\'"))+'')">+ Credits</button></td>'+
+      '<td><button class="btn btn-success" style="font-size:.75rem;padding:3px 10px" onclick="quickAddByIdx('+i+')">+ Credits</button></td>'+
     '</tr>';
   }).join('');
 }
+function quickAddByIdx(i) {
+  var w = allWallets[i];
+  if (w) quickAdd(w.gmail);
+}
+
 function filterWallets() {
   var q = document.getElementById('ai-wallet-search').value.toLowerCase();
   renderWallets(q ? allWallets.filter(function(w){ return (w.gmail||'').toLowerCase().includes(q)||(w.name||'').toLowerCase().includes(q); }) : null);
@@ -1136,23 +1141,28 @@ function filterWallets() {
 function renderTopups() {
   var tbody = document.getElementById('ai-topup-body');
   if (!allTopups.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No topup requests yet.</td></tr>'; return; }
-  tbody.innerHTML = allTopups.map(function(t) {
-    var badge = t.status==='pending'
+  tbody.innerHTML = allTopups.map(function(t, i) {
+    var badge = t.status === 'pending'
       ? '<span class="badge" style="background:#7c2d12;color:#fef3c7">&#8987; Pending</span>'
       : '<span class="badge" style="background:#14532d;color:#4ade80">&#10003; Approved</span>';
-    var btn = t.status==='pending'
-      ? '<button class="btn btn-success" style="font-size:.75rem;padding:3px 10px" onclick="approveTopup(''+t.id+'',''+((t.gmail||'').replace(/'/g,"\'")+'','+t.credits_requested+')')+'">&#10003; Approve</button>'
+    var btn = t.status === 'pending'
+      ? '<button class="btn btn-success" style="font-size:.75rem;padding:3px 10px" onclick="approveTopupByIdx(' + 'i' + ')">&#10003; Approve</button>'
       : '<span style="color:#475569;font-size:.78rem">Done</span>';
-    return '<tr>'+
-      '<td style="color:#94a3b8;font-size:.82rem">'+(t.gmail||'')+'</td>'+
-      '<td><strong style="color:#a5b4fc">'+(t.credits_requested||0)+'</strong></td>'+
-      '<td style="color:#94a3b8;font-size:.8rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(t.note||'&#8212;')+'</td>'+
-      '<td>'+badge+'</td>'+
-      '<td style="color:#64748b;font-size:.75rem">'+(t.created_at||'').replace('T',' ').substring(0,16)+'</td>'+
-      '<td>'+btn+'</td>'+
+    return '<tr>' +
+      '<td style="color:#94a3b8;font-size:.82rem">'+(t.gmail||'')+'</td>' +
+      '<td><strong style="color:#a5b4fc">'+(t.credits_requested||0)+'</strong> credits</td>' +
+      '<td style="color:#94a3b8;font-size:.8rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(t.note||'&#8212;')+'</td>' +
+      '<td>'+badge+'</td>' +
+      '<td style="color:#64748b;font-size:.75rem">'+(t.created_at||'').replace('T',' ').substring(0,16)+'</td>' +
+      '<td>'+btn.replace('i)', i+')')+'</td>' +
     '</tr>';
   }).join('');
 }
+function approveTopupByIdx(i) {
+  var t = allTopups[i];
+  if (t) approveTopup(t.id, t.gmail, t.credits_requested);
+}
+
 async function addCredits() {
   var gmail  = document.getElementById('ai-add-gmail').value.trim().toLowerCase();
   var amount = parseInt(document.getElementById('ai-add-amount').value)||0;
