@@ -1,3 +1,193 @@
+                     img_b64 = part["inline_data"]["data"]
+                    break
+
+            if not img_b64:
+                # Fallback: use chat model to describe, return description
+                self._json(500, {"ok": False, "error": "Image generation model returned no image."}); return
+
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"Image generation error: {str(e)}"}); return
+
+        credits_after = self._ai_deduct_credits(gmail, AI_IMAGE_COST, "image", "Image Gen: "+prompt[:60])
+        self._json(200, {"ok": True, "image_base64": img_b64, "credits_after": credits_after})
+
+    def _ai_get_credits(self):
+        """POST /api/ai/credits — Get current credit balance"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 10)", (gmail,))
+        row = conn.execute("SELECT credits, total_purchased, total_used FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        conn.commit(); conn.close()
+        self._json(200, {
+            "ok": True,
+            "credits":         row['credits']         if row else 10,
+            "total_purchased": row['total_purchased']  if row else 0,
+            "total_used":      row['total_used']        if row else 0,
+        })
+
+    def _ai_transactions(self):
+        """POST /api/ai/transactions — Get recent credit transactions"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        rows  = conn.execute(
+            "SELECT type, amount, balance_after, description, created_at FROM ai_transactions WHERE gmail=? ORDER BY created_at DESC LIMIT 30",
+            (gmail,)
+        ).fetchall()
+        conn.close()
+        self._json(200, {"ok": True, "transactions": [dict(r) for r in rows]})
+
+    def _ai_topup_request(self):
+        """POST /api/ai/topup — Submit a top-up request with receipt"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body  = self._body()
+        credits_req = int(body.get("credits", 0))
+        receipt_b64 = body.get("receipt_base64", "")
+        note        = body.get("note", "")
+        if credits_req <= 0:
+            self._json(400, {"ok": False, "error": "Invalid credits amount"}); return
+        conn = get_db()
+        rid  = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO ai_topup_requests (id, gmail, credits_requested, receipt_base64, note, status) VALUES (?,?,?,?,?,?)",
+            (rid, gmail, credits_req, receipt_b64[:500000], note, 'pending')
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "request_id": rid, "message": "Top-up request submitted. Credits will be added after review."})
+
+    def _admin_add_credits(self):
+        """POST /api/admin/ai/credits/add — Admin: manually add credits to user"""
+        if not self._require_admin(): return
+        body   = self._body()
+        gmail  = body.get("gmail", "").strip().lower()
+        amount = int(body.get("amount", 0))
+        note   = body.get("note", "Admin credit grant")
+        if not gmail or amount <= 0:
+            self._json(400, {"ok": False, "error": "gmail and amount required"}); return
+        conn = get_db()
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 0)", (gmail,))
+        conn.execute("UPDATE ai_wallets SET credits = credits + ?, total_purchased = total_purchased + ? WHERE gmail=?", (amount, amount, gmail))
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        balance = row['credits'] if row else amount
+        conn.execute(
+            "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+            (gmail, 'admin', amount, balance, note)
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
+
+
+if __name__ == "__main__":
+    init_db()
+    server = HTTPServer(("0.0.0.0", PORT), Handler)
+    print(f"[AbimconStudio V3] Server v3 running → http://0.0.0.0:{PORT}")
+    print(f"[AbimconStudio V3] Admin panel        → http://localhost:{PORT}")
+    print(f"[AbimconStudio V3] Admin password    → {ADMIN_PASS}")
+    print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (fet R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[AbimconStudio V3] Stopped.")
+"""
+AbimconStudio V3 — License Management Server  v3
+Pure Python + boto3 for Cloudflare R2 signed URLs.
+
+New in v3:
+  - plan_type (free/pro) per license
+  - expiry_date enforcement
+  - daily_download_limit per plan
+  - Models table (linked to Cloudflare R2)
+  - Secure signed-URL download endpoint  POST /api/download-model
+  - Download log table for daily-limit tracking
+  - Admin: model CRUD, reset daily count, expiry management
+"""
+
+import os, sys, json, sqlite3, hmac, hashlib, base64, time, re, uuid, threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+from datetime import datetime, timezone, timedelta
+
+# ── Gemini AI (loaded from Railway env var — NEVER hardcoded) ──────────────────
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_CHAT_MODEL  = 'gemini-1.5-pro'
+GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation'
+AI_CHAT_COST  = 1    # credits per chat message
+AI_IMAGE_COST = 10   # credits per image generation
+
+try:h
+    import urllib.request as _urllib_req
+    import urllib.error   as _urllib_err
+    _AI_HTTP_AVAILABLE = True
+except Exception:
+    _AI_HTTP_AVAILABLE = False
+
+# ── Input validation regexes ───────────────────────────────────────────────────
+_GMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+_KEY_RE   = re.compile(r'^ABIM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+
+# ── In-memory rate limiter ─────────────────────────────────────────────────────
+_rl_lock   = threading.Lock()
+_rl_store  = {}   # ip -> {attempts, window_start, locked_until}
+_RL_MAX    = 5    # max attempts per window
+_RL_WINDOW = 60   # seconds per window
+_RL_LOCK   = 300  # lockout duration (5 min); escalates to 1 hour after 15 total
+
+def _rl_check(ip: str) -> bool:
+    """Return True if request is allowed; False if rate-limited."""
+    now = time.time()
+    with _rl_lock:
+        r = _rl_store.get(ip, {"attempts": 0, "window_start": now, "locked_until": 0, "total": 0})
+        if now < r.get("locked_until", 0):
+            return False
+        if now - r.get("window_start", now) > _RL_WINDOW:
+            r = {"attempts": 0, "window_start": now, "locked_until": 0, "total": r.get("total", 0)}
+        r["attempts"] = r.get("attempts", 0) + 1
+        r["total"]    = r.get("total", 0) + 1
+        if r["attempts"] >= _RL_MAX:
+            lockout = 3600 if r["total"] >= 15 else _RL_LOCK
+            r["locked_until"] = now + lockout
+            _rl_store[ip] = r
+            return False
+        _rl_store[ip] = r
+        return True
+
+def _rl_reset(ip: str):
+    with _rl_lock:
+        _rl_store.pop(ip, None)
+
+# ── Challenge / nonce store ────────────────────────────────────────────────────
+_nc_lock  = threading.Lock()
+_nc_store = {}   # nonce -> expiry_timestamp
+_NC_TTL   = 45   # seconds a nonce is valid
+
+def _nc_create() -> str:
+    nonce = base64.urlsafe_b64encode(os.urandom(18)).decode().rstrip("=")
+    now   = time.time()
+    with _nc_lock:
+        _nc_store[nonce] = now + _NC_TTL
+        # Purge stale nonces
+        stale = [k for k, v in list(_nc_store.items()) if v < now]
+        for k in stale:
+            del _nc_store[k]
+    return nonce
+
+def _nc_consume(nonce: str) -> bool:
+    """Returns True and removes nonce if valid; False otherwise (one-use)."""
+    now = time.time()
+    with _nc_lock:
+        exp = _nc_store.pop(nonce, None)
+    return exp is not None and exp > now
+
+# ── boto3 for Cloudflare R2 signed URLs ────────────────────────────────────────
+try:
+    import boto3
+    from botocore.config import Config as BotoConfig
+    HAS_BOTO3 = True
 #!/usr/bin/env python3
 """
 AbimconStudio V3 — License Management Server  v3
@@ -546,7 +736,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/plan-features":        self._get_plan_features_public()
         elif path == "/api/models":               self._get_user_models()
         elif path == "/api/assets":               self._get_assets()   # ← AssetBrowser JS endpoint
-  #     else:
+        else:
             m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
             m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
             m_mod = re.match(r"^/api/admin/models/([^/]+)$",               path)
@@ -1767,98 +1957,3 @@ class Handler(BaseHTTPRequestHandler):
             img_b64 = None
             for part in resp_data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
                 if "inline_data" in part:
-                    img_b64 = part["inline_data"]["data"]
-                    break
-
-            if not img_b64:
-                # Fallback: use chat model to describe, return description
-                self._json(500, {"ok": False, "error": "Image generation model returned no image."}); return
-
-        except Exception as e:
-            self._json(500, {"ok": False, "error": f"Image generation error: {str(e)}"}); return
-
-        credits_after = self._ai_deduct_credits(gmail, AI_IMAGE_COST, "image", "Image Gen: "+prompt[:60])
-        self._json(200, {"ok": True, "image_base64": img_b64, "credits_after": credits_after})
-
-    def _ai_get_credits(self):
-        """POST /api/ai/credits — Get current credit balance"""
-        payload = self._require_auth()
-        if not payload: return
-        gmail = payload.get('sub', '')
-        conn  = get_db()
-        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 10)", (gmail,))
-        row = conn.execute("SELECT credits, total_purchased, total_used FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
-        conn.commit(); conn.close()
-        self._json(200, {
-            "ok": True,
-            "credits":         row['credits']         if row else 10,
-            "total_purchased": row['total_purchased']  if row else 0,
-            "total_used":      row['total_used']        if row else 0,
-        })
-
-    def _ai_transactions(self):
-        """POST /api/ai/transactions — Get recent credit transactions"""
-        payload = self._require_auth()
-        if not payload: return
-        gmail = payload.get('sub', '')
-        conn  = get_db()
-        rows  = conn.execute(
-            "SELECT type, amount, balance_after, description, created_at FROM ai_transactions WHERE gmail=? ORDER BY created_at DESC LIMIT 30",
-            (gmail,)
-        ).fetchall()
-        conn.close()
-        self._json(200, {"ok": True, "transactions": [dict(r) for r in rows]})
-
-    def _ai_topup_request(self):
-        """POST /api/ai/topup — Submit a top-up request with receipt"""
-        payload = self._require_auth()
-        if not payload: return
-        gmail = payload.get('sub', '')
-        body  = self._body()
-        credits_req = int(body.get("credits", 0))
-        receipt_b64 = body.get("receipt_base64", "")
-        note        = body.get("note", "")
-        if credits_req <= 0:
-            self._json(400, {"ok": False, "error": "Invalid credits amount"}); return
-        conn = get_db()
-        rid  = str(uuid.uuid4())
-        conn.execute(
-            "INSERT INTO ai_topup_requests (id, gmail, credits_requested, receipt_base64, note, status) VALUES (?,?,?,?,?,?)",
-            (rid, gmail, credits_req, receipt_b64[:500000], note, 'pending')
-        )
-        conn.commit(); conn.close()
-        self._json(200, {"ok": True, "request_id": rid, "message": "Top-up request submitted. Credits will be added after review."})
-
-    def _admin_add_credits(self):
-        """POST /api/admin/ai/credits/add — Admin: manually add credits to user"""
-        if not self._require_admin(): return
-        body   = self._body()
-        gmail  = body.get("gmail", "").strip().lower()
-        amount = int(body.get("amount", 0))
-        note   = body.get("note", "Admin credit grant")
-        if not gmail or amount <= 0:
-            self._json(400, {"ok": False, "error": "gmail and amount required"}); return
-        conn = get_db()
-        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 0)", (gmail,))
-        conn.execute("UPDATE ai_wallets SET credits = credits + ?, total_purchased = total_purchased + ? WHERE gmail=?", (amount, amount, gmail))
-        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
-        balance = row['credits'] if row else amount
-        conn.execute(
-            "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
-            (gmail, 'admin', amount, balance, note)
-        )
-        conn.commit(); conn.close()
-        self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
-
-
-if __name__ == "__main__":
-    init_db()
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"[AbimconStudio V3] Server v3 running → http://0.0.0.0:{PORT}")
-    print(f"[AbimconStudio V3] Admin panel        → http://localhost:{PORT}")
-    print(f"[AbimconStudio V3] Admin password    → {ADMIN_PASS}")
-    print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (fet R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[AbimconStudio V3] Stopped.")
