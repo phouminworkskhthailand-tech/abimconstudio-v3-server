@@ -1836,7 +1836,7 @@ class Handler(BaseHTTPRequestHandler):
         gmail  = body.get("gmail", "").strip().lower()
         amount = int(body.get("amount", 0))
         note   = body.get("note", "Admin credit grant")
-  2     if not gmail or amount <= 0:
+        if not gmail or amount <= 0:
             self._json(400, {"ok": False, "error": "gmail and amount required"}); return
         conn = get_db()
         conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 0)", (gmail,))
