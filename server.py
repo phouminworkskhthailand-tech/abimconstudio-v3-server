@@ -1,1 +1,1864 @@
-undefined
+#!/usr/bin/env python3
+"""
+AbimconStudio V3 â License Management Server  v3
+Pure Python + boto3 for Cloudflare R2 signed URLs.
+
+New in v3:
+  - plan_type (free/pro) per license
+  - expiry_date enforcement
+  - daily_download_limit per plan
+  - Models table (linked to Cloudflare R2)
+  - Secure signed-URL download endpoint  POST /api/download-model
+  - Download log table for daily-limit tracking
+  - Admin: model CRUD, reset daily count, expiry management
+"""
+
+import os, sys, json, sqlite3, hmac, hashlib, base64, time, re, uuid, threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+from datetime import datetime, timezone, timedelta
+
+# ââ Gemini AI (loaded from Railway env var â NEVER hardcoded) ââââââââââââââââââ
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_CHAT_MODEL  = 'gemini-1.5-pro'
+GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation'
+AI_CHAT_COST  = 1    # credits per chat message
+AI_IMAGE_COST = 10   # credits per image generation
+
+try:
+    import urllib.request as _urllib_req
+    import urllib.error   as _urllib_err
+    _AI_HTTP_AVAILABLE = True
+except Exception:
+    _AI_HTTP_AVAILABLE = False
+
+# ââ Input validation regexes âââââââââââââââââââââââââââââââââââââââââââââââââââ
+_GMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+_KEY_RE   = re.compile(r'^ABIM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+
+# ââ In-memory rate limiter âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+_rl_lock   = threading.Lock()
+_rl_store  = {}   # ip -> {attempts, window_start, locked_until}
+_RL_MAX    = 5    # max attempts per window
+_RL_WINDOW = 60   # seconds per window
+_RL_LOCK   = 300  # lockout duration (5 min); escalates to 1 hour after 15 total
+
+def _rl_check(ip: str) -> bool:
+    """Return True if request is allowed; False if rate-limited."""
+    now = time.time()
+    with _rl_lock:
+        r = _rl_store.get(ip, {"attempts": 0, "window_start": now, "locked_until": 0, "total": 0})
+        if now < r.get("locked_until", 0):
+            return False
+        if now - r.get("window_start", now) > _RL_WINDOW:
+            r = {"attempts": 0, "window_start": now, "locked_until": 0, "total": r.get("total", 0)}
+        r["attempts"] = r.get("attempts", 0) + 1
+        r["total"]    = r.get("total", 0) + 1
+        if r["attempts"] >= _RL_MAX:
+            lockout = 3600 if r["total"] >= 15 else _RL_LOCK
+            r["locked_until"] = now + lockout
+            _rl_store[ip] = r
+            return False
+        _rl_store[ip] = r
+        return True
+
+def _rl_reset(ip: str):
+    with _rl_lock:
+        _rl_store.pop(ip, None)
+
+# ââ Challenge / nonce store ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+_nc_lock  = threading.Lock()
+_nc_store = {}   # nonce -> expiry_timestamp
+_NC_TTL   = 45   # seconds a nonce is valid
+
+def _nc_create() -> str:
+    nonce = base64.urlsafe_b64encode(os.urandom(18)).decode().rstrip("=")
+    now   = time.time()
+    with _nc_lock:
+        _nc_store[nonce] = now + _NC_TTL
+        # Purge stale nonces
+        stale = [k for k, v in list(_nc_store.items()) if v < now]
+        for k in stale:
+            del _nc_store[k]
+    return nonce
+
+def _nc_consume(nonce: str) -> bool:
+    """Returns True and removes nonce if valid; False otherwise (one-use)."""
+    now = time.time()
+    with _nc_lock:
+        exp = _nc_store.pop(nonce, None)
+    return exp is not None and exp > now
+
+# ââ boto3 for Cloudflare R2 signed URLs ââââââââââââââââââââââââââââââââââââââââ
+try:
+    import boto3
+    from botocore.config import Config as BotoConfig
+    HAS_BOTO3 = True
+except ImportError:
+    HAS_BOTO3 = False
+    print("[WARN] boto3 not installed â /api/download-model will be disabled. Run: pip install boto3")
+
+# ââ Config âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+PORT       = int(os.environ.get("PORT", 8080))
+ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "abimcon_admin_2026")
+SECRET_KEY = os.environ.get("SECRET_KEY",     "abimcon_secret_key_v3_change_me")
+DB_PATH    = os.environ.get("DB_PATH",         "/data/abimcon_v3.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)  # ensure /data dir exists
+
+# Cloudflare R2 credentials (set these in Railway environment variables)
+R2_ACCOUNT_ID        = os.environ.get("R2_ACCOUNT_ID",        "")
+R2_ACCESS_KEY_ID     = os.environ.get("R2_ACCESS_KEY_ID",     "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME       = os.environ.get("R2_BUCKET_NAME",       "abimcon-models")   # bucket for .skp files
+R2_ASSETS_BUCKET     = os.environ.get("R2_ASSETS_BUCKET",     "abimcon-assets")   # bucket for thumbnails/images
+R2_SIGNED_URL_TTL    = int(os.environ.get("R2_SIGNED_URL_TTL", 300))  # seconds (default 5 min)
+
+# Plan defaults
+PLAN_DAILY_LIMITS = {"free": 5, "pro": 100, "trial": 50}
+
+# ââ Database âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    # ââ Licenses ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS licenses (
+            id                  TEXT PRIMARY KEY,
+            gmail               TEXT UNIQUE NOT NULL,
+            license_key         TEXT UNIQUE NOT NULL,
+            name                TEXT NOT NULL,
+            role                TEXT NOT NULL DEFAULT 'editor',
+            plan_type           TEXT NOT NULL DEFAULT 'free',
+            active              INTEGER NOT NULL DEFAULT 1,
+            max_devices         INTEGER NOT NULL DEFAULT 2,
+            daily_download_limit INTEGER,
+            expiry_date         TEXT,
+            last_login          TEXT,
+            created_at          TEXT NOT NULL
+        )
+    """)
+
+    # ââ Registered HWIDs ââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS registered_hwids (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_id TEXT NOT NULL,
+            hwid       TEXT NOT NULL,
+            first_seen TEXT NOT NULL,
+            last_seen  TEXT NOT NULL,
+            ip_addr    TEXT,
+            UNIQUE(license_id, hwid),
+            FOREIGN KEY(license_id) REFERENCES licenses(id) ON DELETE CASCADE
+        )
+    """)
+
+    # ââ Models ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS models (
+            model_id    TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            r2_path     TEXT NOT NULL,
+            is_premium  INTEGER NOT NULL DEFAULT 0,
+            file_size   INTEGER DEFAULT 0,
+            description TEXT DEFAULT '',
+            created_at  TEXT NOT NULL
+        )
+    """)
+
+    # ââ Download Logs (for daily limit tracking) âââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS download_logs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_id    TEXT NOT NULL,
+            model_id      TEXT NOT NULL,
+            downloaded_at TEXT NOT NULL,
+            ip_addr       TEXT,
+            hwid          TEXT,
+            FOREIGN KEY(license_id) REFERENCES licenses(id) ON DELETE CASCADE
+        )
+    """)
+
+    # ââ Activity log ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            gmail      TEXT,
+            action     TEXT,
+            success    INTEGER,
+            ip_addr    TEXT,
+            hwid       TEXT,
+            created_at TEXT
+        )
+    """)
+
+    # ââ AI Wallets ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ai_wallets (
+            id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            gmail           TEXT UNIQUE NOT NULL,
+            credits         INTEGER NOT NULL DEFAULT 10,
+            total_purchased INTEGER NOT NULL DEFAULT 0,
+            total_used      INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+    """)
+
+    # ââ AI Credit Transactions ââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ai_transactions (
+            id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            gmail         TEXT NOT NULL,
+            type          TEXT NOT NULL,
+            amount        INTEGER NOT NULL,
+            balance_after INTEGER NOT NULL,
+            description   TEXT,
+            created_at    TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+    """)
+
+    # ââ AI Top-up Requests ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ai_topup_requests (
+            id                TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            gmail             TEXT NOT NULL,
+            credits_requested INTEGER NOT NULL,
+            receipt_base64    TEXT,
+            note              TEXT,
+            status            TEXT DEFAULT 'pending',
+            admin_note        TEXT,
+            created_at        TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+    """)
+
+    # ââ Plan Features (feature flags per plan/role) âââââââââââââââââââââââââââ
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS plan_features (
+            id          TEXT PRIMARY KEY,
+            plan_type   TEXT NOT NULL,
+            feature_key TEXT NOT NULL,
+            label       TEXT NOT NULL DEFAULT '',
+            enabled     INTEGER NOT NULL DEFAULT 1,
+            sort_order  INTEGER NOT NULL DEFAULT 99,
+            UNIQUE(plan_type, feature_key)
+        )
+    """)
+
+    # Seed default plan features if empty
+    c.execute("SELECT COUNT(*) FROM plan_features")
+    if c.fetchone()[0] == 0:
+        feature_defs = [
+            # (plan_type, feature_key, label, enabled, sort_order)
+            ('pro',   'boq_input',        'BOQ Input',          1, 1),
+            ('pro',   'excel_sync',        'Excel Sync',         1, 2),
+            ('pro',   'asset_browser',     'Asset Browser',      1, 3),
+            ('pro',   'project_schedule',  'Project Schedule',   1, 4),
+            ('pro',   'project_todo',      'Project To-Do List', 1, 5),
+            ('free',  'boq_input',         'BOQ Input',          1, 1),
+            ('free',  'excel_sync',         'Excel Sync',         1, 2),
+            ('free',  'asset_browser',      'Asset Browser',      1, 3),
+            ('free',  'project_schedule',   'Project Schedule',   0, 4),
+            ('free',  'project_todo',       'Project To-Do List', 0, 5),
+            ('trial', 'boq_input',          'BOQ Input',          1, 1),
+            ('trial', 'excel_sync',          'Excel Sync',         1, 2),
+            ('trial', 'asset_browser',       'Asset Browser',      1, 3),
+            ('trial', 'project_schedule',    'Project Schedule',   1, 4),
+            ('trial', 'project_todo',        'Project To-Do List', 1, 5),
+        ]
+        for plan, fkey, label, enabled, sort in feature_defs:
+            c.execute(
+                "INSERT INTO plan_features (id,plan_type,feature_key,label,enabled,sort_order) "
+                "VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4()), plan, fkey, label, enabled, sort)
+            )
+
+    # ââ Idempotent migrations for existing DBs ââââââââââââââââââââââââââââââââ
+    migrations = [
+        "ALTER TABLE licenses ADD COLUMN max_devices         INTEGER NOT NULL DEFAULT 2",
+        "ALTER TABLE licenses ADD COLUMN plan_type           TEXT    NOT NULL DEFAULT 'free'",
+        "ALTER TABLE licenses ADD COLUMN expiry_date         TEXT",
+        "ALTER TABLE licenses ADD COLUMN daily_download_limit INTEGER",
+        "ALTER TABLE activity_log ADD COLUMN hwid TEXT",
+        # v3.1 â new model columns for AssetBrowser UI
+        "ALTER TABLE models ADD COLUMN category     TEXT    NOT NULL DEFAULT 'General'",
+        "ALTER TABLE models ADD COLUMN tags         TEXT    NOT NULL DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN thumbnail    TEXT    NOT NULL DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN plan_required TEXT   NOT NULL DEFAULT 'free'",
+        "ALTER TABLE models ADD COLUMN file_size_mb REAL   NOT NULL DEFAULT 0",
+        "ALTER TABLE models ADD COLUMN active       INTEGER NOT NULL DEFAULT 1",
+    ]
+    for sql in migrations:
+        try:
+            c.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+    # ââ Idempotent plan_features seed/patch (runs every startup) âââââââââââââ
+    # Ensures ALL feature keys exist for all plans regardless of DB age.
+    # Each (plan_type, feature_key) pair is upserted with the correct defaults.
+    required_features = [
+        # (plan_type, feature_key, label, enabled, sort_order)
+        ('pro',   'boq_input',         'BOQ Input',           1, 1),
+        ('pro',   'excel_sync',         'Excel Sync',          1, 2),
+        ('pro',   'asset_browser',      'Asset Browser',       1, 3),
+        ('pro',   'financial_report',   'BOQ Report',          1, 4),
+        ('pro',   'project_schedule',   'Project Schedule',    1, 5),
+        ('pro',   'project_todo',       'Project To-Do List',  1, 6),
+        ('pro',   'material_schedule',  'Material Schedule',   1, 7),
+        ('free',  'boq_input',          'BOQ Input',           1, 1),
+        ('free',  'excel_sync',          'Excel Sync',          0, 2),
+        ('free',  'asset_browser',       'Asset Browser',       0, 3),
+        ('free',  'financial_report',    'BOQ Report',          0, 4),
+        ('free',  'project_schedule',    'Project Schedule',    0, 5),
+        ('free',  'project_todo',        'Project To-Do List',  0, 6),
+        ('free',  'material_schedule',   'Material Schedule',   0, 7),
+        ('trial', 'boq_input',           'BOQ Input',           1, 1),
+        ('trial', 'excel_sync',           'Excel Sync',          1, 2),
+        ('trial', 'asset_browser',        'Asset Browser',       1, 3),
+        ('trial', 'financial_report',     'BOQ Report',          1, 4),
+        ('trial', 'project_schedule',     'Project Schedule',    1, 5),
+        ('trial', 'project_todo',         'Project To-Do List',  1, 6),
+        ('trial', 'material_schedule',    'Material Schedule',   1, 7),
+    ]
+    for plan, fkey, label, enabled, sort in required_features:
+        exists = c.execute(
+            "SELECT COUNT(*) FROM plan_features WHERE plan_type=? AND feature_key=?",
+            (plan, fkey)
+        ).fetchone()[0]
+        if exists == 0:
+            c.execute(
+                "INSERT INTO plan_features (id,plan_type,feature_key,label,enabled,sort_order) "
+                "VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4()), plan, fkey, label, enabled, sort)
+            )
+
+    # ââ Seed licenses âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("SELECT COUNT(*) FROM licenses")
+    if c.fetchone()[0] == 0:
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        expiry_pro  = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%d")
+        seeds = [
+            ("abimcon.user01@gmail.com","ABIM-4K9L-MN2P-X001","Abimcon User 01","admin",  "pro",  expiry_pro, 2, 100),
+            ("abimcon.user02@gmail.com","ABIM-7R3T-QW5X-X002","Abimcon User 02","editor", "pro",  expiry_pro, 2, 100),
+            ("abimcon.user03@gmail.com","ABIM-1ZBP-HV8C-X003","Abimcon User 03","editor", "free", None,       2, 5),
+            ("abimcon.user04@gmail.com","ABIM-9NKW-DF4J-X004","Abimcon User 04","viewer", "free", None,       2, 5),
+            ("abimcon.user05@gmail.com","ABIM-5MQE-TU6G-X005","Abimcon User 05","editor", "pro",  expiry_pro, 2, 100),
+            ("abimcon.user06@gmail.com","ABIM-2XVC-SB3H-X006","Abimcon User 06","viewer", "free", None,       2, 5),
+            ("abimcon.user07@gmail.com","ABIM-8FGD-PW7Y-X007","Abimcon User 07","editor", "pro",  expiry_pro, 2, 100),
+            ("abimcon.user08@gmail.com","ABIM-3LRJ-CZ9M-X008","Abimcon User 08","viewer", "free", None,       2, 5),
+            ("abimcon.user09@gmail.com","ABIM-6THN-AX1K-X009","Abimcon User 09","editor", "pro",  expiry_pro, 2, 100),
+            ("abimcon.user10@gmail.com","ABIM-0YAF-LK2R-X010","Abimcon User 10","admin",  "pro",  expiry_pro, 2, 100),
+        ]
+        for gmail, key, name, role, plan, expiry, max_dev, ddl in seeds:
+            c.execute(
+                "INSERT INTO licenses (id,gmail,license_key,name,role,plan_type,active,max_devices,daily_download_limit,expiry_date,created_at) "
+                "VALUES (?,?,?,?,?,?,1,?,?,?,?)",
+                (str(uuid.uuid4()), gmail, key, name, role, plan, max_dev, ddl, expiry, now)
+            )
+
+    # ââ Seed models âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    c.execute("SELECT COUNT(*) FROM models")
+    if c.fetchone()[0] == 0:
+        now_m = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        model_seeds = [
+            ("Tle Jirayut",            "models/Tle_Jirayut_.skp",           "free", "Architecture", "thai,house,residential",   "Thai residential architecture model by Tle Jirayut", 66.6),
+            ("Ray Thai Architecture",  "models/ray_Thai_architecture.skp",  "free", "Architecture", "thai,architecture,house",   "Thai architecture reference model",                 17.6),
+            ("Sutichai Pluemthanom",   "models/_Sutichai_Pluemthanom.skp", "free", "Architecture", "thai,house,residential",   "Residential model by Sutichai Pluemthanom",          27.2),
+            ("\u0e04\u0e21\u0e01\u0e23\u0e34\u0e0a \u0e1e\u0e31\u0e19\u0e42\u0e01\u0e0e\u0e34",  "models/\u0e04\u0e21\u0e01\u0e23\u0e34\u0e0a_\u0e1e\u0e31\u0e19\u0e42\u0e01\u0e0e\u0e34.skp", "free", "Architecture", "thai,house",               "Thai house model",                                  32.5),
+            ("\u0e41\u0e1a\u0e1a\u0e1a\u0e49\u0e32\u0e19 GHB 102", "models/\u0e41\u0e1a\u0e1a\u0e1a\u0e49\u0e32\u0e19_GHB_102.skp", "free", "Architecture", "thai,house,GHB,floor plan", "GHB floor plan model 102",                          13.9),
+        ]
+        for m_name, r2_path, plan_req, category, tags, desc, fsz in model_seeds:
+            c.execute(
+                "INSERT INTO models "
+                "(model_id,name,r2_path,is_premium,file_size,description,created_at,"
+                "category,tags,plan_required,file_size_mb,active) "
+                "VALUES (?,?,?,0,0,?,?,?,?,?,?,1)",
+                (str(uuid.uuid4()), m_name, r2_path, desc, now_m, category, tags, plan_req, fsz)
+            )
+
+    conn.commit()
+    conn.close()
+    print(f"[DB] Initialised at {DB_PATH}")
+
+# ââ Cloudflare R2 signed URL ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+def generate_r2_signed_url(r2_path: str, ttl: int = R2_SIGNED_URL_TTL,
+                            bucket: str = None) -> str | None:
+    if not HAS_BOTO3:
+        return None
+    if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]):
+        print("[R2] Missing credentials â set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY")
+        return None
+    bucket = bucket or R2_BUCKET_NAME
+    try:
+        s3 = boto3.client(
+            "s3",
+            endpoint_url          = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id     = R2_ACCESS_KEY_ID,
+            aws_secret_access_key = R2_SECRET_ACCESS_KEY,
+            config                = BotoConfig(signature_version="s3v4"),
+            region_name           = "auto",
+        )
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params    = {"Bucket": bucket, "Key": r2_path},
+            ExpiresIn = ttl,
+        )
+        return url
+    except Exception as e:
+        print(f"[R2] Signed URL error ({bucket}/{r2_path}): {e}")
+        return None
+
+def _sign_thumbnail(thumb: str) -> str:
+    """Return a signed URL for a thumbnail R2 path, or the value as-is if it's already a URL."""
+    if not thumb:
+        return ""
+    if thumb.startswith("http://") or thumb.startswith("https://"):
+        return thumb   # already a full URL â return unchanged
+    # treat as R2 key in the assets bucket (thumbnails/xxx.jpg)
+    return generate_r2_signed_url(thumb, ttl=3600, bucket=R2_ASSETS_BUCKET) or ""
+
+# ââ JWT helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+def _b64(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+def _b64d(s):
+    pad = 4 - len(s) % 4
+    return base64.urlsafe_b64decode(s + "=" * (pad % 4))
+
+def make_token(payload, expires_in=86400):
+    header  = _b64(json.dumps({"alg":"HS256","typ":"JWT"}).encode())
+    payload = dict(payload, exp=int(time.time())+expires_in, iat=int(time.time()))
+    body    = _b64(json.dumps(payload).encode())
+    sig     = _b64(hmac.new(SECRET_KEY.encode(), f"{header}.{body}".encode(), hashlib.sha256).digest())
+    return f"{header}.{body}.{sig}"
+
+def verify_token(token):
+    try:
+        h, b, s = token.split(".")
+        expected = _b64(hmac.new(SECRET_KEY.encode(), f"{h}.{b}".encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(expected, s):
+            return None
+        payload = json.loads(_b64d(b))
+        if payload.get("exp", 0) < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
+# ââ Admin Panel HTML ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+_admin_path = os.path.join(os.path.dirname(__file__), "admin.html")
+ADMIN_HTML  = open(_admin_path).read() if os.path.exists(_admin_path) \
+              else "<h1>Admin panel not found</h1>"
+
+# ââ HTTP Handler ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+class Handler(BaseHTTPRequestHandler):
+
+    def log_message(self, fmt, *args):
+        print(f"[HTTP] {self.address_string()} - {fmt % args}")
+
+    def _get_client_ip(self):
+        xff = self.headers.get("X-Forwarded-For", "").strip()
+        if xff:
+            return xff.split(",")[0].strip()
+        return self.client_address[0]
+
+    def _json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type",   "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin",  "*")
+        self.send_header("Access-Control-Allow-Headers", "Authorization,Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _html(self, code, html):
+        body = html.encode()
+        self.send_response(code)
+        self.send_header("Content-Type",   "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length)) if length else {}
+
+    def _require_admin(self):
+        auth  = self.headers.get("Authorization", "")
+        token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        payload = verify_token(token)
+        if not payload or payload.get("role") != "admin":
+            self._json(401, {"error": "Unauthorized"})
+            return None
+        return payload
+
+    def _require_auth(self):
+        """Require any valid session token (admin or user)."""
+        auth  = self.headers.get("Authorization", "")
+        token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        payload = verify_token(token)
+        if not payload:
+            self._json(401, {"error": "Unauthorized"})
+            return None
+        return payload
+
+    def _log_activity(self, gmail, action, success, hwid=""):
+        conn = get_db()
+        now  = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        conn.execute(
+            "INSERT INTO activity_log (gmail,action,success,ip_addr,hwid,created_at) VALUES (?,?,?,?,?,?)",
+            (gmail, action, 1 if success else 0, self._get_client_ip(), hwid or None, now)
+        )
+        conn.commit(); conn.close()
+
+    # ââ CORS preflight ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin",  "*")
+        self.send_header("Access-Control-Allow-Headers", "Authorization,Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+        self.end_headers()
+
+    # ââ GET âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    def do_GET(self):
+        path = urlparse(self.path).path.rstrip("/") or "/"
+
+        if   path == "/":                         self._html(200, ADMIN_HTML)
+        elif path == "/health":                   self._json(200, {"status": "ok"})
+        elif path == "/api/challenge":
+            nonce = _nc_create()
+            self._json(200, {"nonce": nonce, "ttl": _NC_TTL})
+        elif path == "/api/admin/verify":
+            p = self._require_admin()
+            if p: self._json(200, {"ok": True})
+        elif path == "/api/admin/licenses":       self._get_licenses()
+        elif path == "/api/admin/logs":           self._get_logs()
+        elif path == "/api/admin/models":         self._get_models()
+        elif path == "/api/admin/plan-features":  self._get_plan_features()
+        elif path == "/api/plan-features":        self._get_plan_features_public()
+        elif path == "/api/models":               self._get_user_models()
+        elif path == "/api/assets":               self._get_assets()   # â AssetBrowser JS endpoint
+        else:
+            m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
+            m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
+            m_mod = re.match(r"^/api/admin/models/([^/]+)$",               path)
+            if   m_hw:  self._get_hwids(m_hw.group(1))
+            elif m_dl:  self._get_download_stats(m_dl.group(1))
+            else:       self._json(404, {"error": "Not found"})
+
+    # ââ POST ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    def do_POST(self):
+        path = urlparse(self.path).path.rstrip("/")
+
+        if   path == "/api/admin/login":           self._admin_login()
+        elif path == "/api/validate":               self._validate_license()
+        elif path == "/api/license-info":           self._license_info()
+        elif path == "/api/deactivate-device":      self._deactivate_device()
+        elif path == "/api/ai/chat":                self._ai_chat()
+        elif path == "/api/ai/image":               self._ai_image()
+        elif path == "/api/ai/credits":             self._ai_get_credits()
+        elif path == "/api/ai/transactions":        self._ai_transactions()
+        elif path == "/api/ai/topup":               self._ai_topup_request()
+        elif path == "/api/admin/ai/credits/add":   self._admin_add_credits()
+        elif path == "/api/download-model":         self._download_model()
+        elif path == "/api/download":               self._download()        # â AssetBrowser JS endpoint
+        elif path == "/api/admin/licenses":         self._add_license()
+        elif path == "/api/admin/models":           self._add_model()
+        elif path == "/api/admin/plan-features":    self._add_plan_or_feature()
+        else:
+            m_ext = re.match(r"^/api/admin/licenses/([^/]+)/extend$", path)
+            if m_ext: self._extend_license(m_ext.group(1))
+            else:     self._json(404, {"error": "Not found"})
+
+    # ââ PUT âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    def do_PUT(self):
+        path = urlparse(self.path).path.rstrip("/")
+        if path == "/api/admin/plan-features":
+            self._update_plan_feature()
+        else:
+            m = re.match(r"^/api/admin/licenses/([^/]+)$", path)
+            if m: self._update_license(m.group(1))
+            else:
+                m2 = re.match(r"^/api/admin/models/([^/]+)$", path)
+                if m2: self._update_model(m2.group(1))
+                else: self._json(404, {"error": "Not found"})
+
+    # ââ DELETE ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    def do_DELETE(self):
+        path = urlparse(self.path).path.rstrip("/")
+        m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
+        m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
+        m_lic = re.match(r"^/api/admin/licenses/([^/]+)$",             path)
+        m_mod = re.match(r"^/api/admin/models/([^/]+)$",               path)
+
+        if   m_hw:  self._reset_hwids(m_hw.group(1))
+        elif m_dl:  self._reset_downloads(m_dl.group(1))
+        elif m_lic: self._delete_license(m_lic.group(1))
+        elif m_mod: self._delete_model(m_mod.group(1))
+        else:       self._json(404, {"error": "Not found"})
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ Auth Handlers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _admin_login(self):
+        body = self._body()
+        if body.get("password", "") != ADMIN_PASS:
+            self._log_activity("admin", "admin_login", False)
+            self._json(401, {"error": "Invalid password"}); return
+        token = make_token({"sub": "admin", "role": "admin"})
+        self._log_activity("admin", "admin_login", True)
+        self._json(200, {"token": token})
+
+    def _validate_license(self):
+        client_ip = self._get_client_ip()
+
+        # ââ Rate limiting ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        if not _rl_check(client_ip):
+            self._log_activity("?", "rate_limited", False)
+            self._json(429, {
+                "ok": False,
+                "error": "Too many failed attempts. Please wait 5 minutes before trying again.",
+                "code": "RATE_LIMITED"
+            }); return
+
+        body  = self._body()
+        gmail = body.get("gmail", "").strip().lower()
+        key   = body.get("license_key", "").strip()
+        hwid  = body.get("hwid", "").strip()
+        nonce = body.get("nonce", "").strip()
+
+        # ââ Input validation âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        if not gmail or not key:
+            self._json(400, {"ok": False, "error": "Missing credentials"}); return
+        if not _GMAIL_RE.match(gmail):
+            self._json(400, {"ok": False, "error": "Invalid email format"}); return
+        if not _KEY_RE.match(key):
+            self._json(400, {"ok": False, "error": "Invalid license key format"}); return
+
+        # ââ Challenge-response nonce verification ââââââââââââââââââââââââââââââââ
+        # If a nonce was provided, it must be valid (prevents replay attacks).
+        # If no nonce provided, allow through for backward compatibility with
+        # older clients â once all clients are updated, make this mandatory.
+        if nonce and not _nc_consume(nonce):
+            self._json(400, {
+                "ok": False,
+                "error": "Invalid or expired security challenge. Please try again.",
+                "code": "NONCE_INVALID"
+            }); return
+
+        conn = get_db()
+        row  = conn.execute(
+            "SELECT * FROM licenses WHERE gmail=? AND license_key=? AND active=1",
+            (gmail, key)
+        ).fetchone()
+
+        if not row:
+            conn.close()
+            self._log_activity(gmail, "sketchup_login", False, hwid)
+            self._json(401, {"ok": False, "error": "Invalid Gmail or License Key"}); return
+
+        # ââ Check expiry ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        if row["expiry_date"]:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if row["expiry_date"] < today:
+                conn.close()
+                self._log_activity(gmail, "license_expired", False, hwid)
+                self._json(403, {"ok": False, "error": "License expired. Contact your administrator.", "code": "EXPIRED"}); return
+
+        # ââ HWID enforcement ââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        max_dev   = row["max_devices"] if row["max_devices"] else 2
+        client_ip = self._get_client_ip()
+        now_ts    = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        if hwid:
+            hw_rows = conn.execute(
+                "SELECT hwid FROM registered_hwids WHERE license_id=?", (row["id"],)
+            ).fetchall()
+            known = [r["hwid"] for r in hw_rows]
+
+            if hwid in known:
+                conn.execute(
+                    "UPDATE registered_hwids SET last_seen=?, ip_addr=? WHERE license_id=? AND hwid=?",
+                    (now_ts, client_ip, row["id"], hwid)
+                )
+            else:
+                if len(known) >= max_dev:
+                    conn.close()
+                    self._log_activity(gmail, "hwid_blocked", False, hwid)
+                    self._json(403, {
+                        "ok":    False,
+                        "error": f"Device limit reached ({max_dev} devices). Contact your admin to reset.",
+                        "code":  "DEVICE_LIMIT"
+                    }); return
+                conn.execute(
+                    "INSERT INTO registered_hwids (license_id,hwid,first_seen,last_seen,ip_addr) VALUES (?,?,?,?,?)",
+                    (row["id"], hwid, now_ts, now_ts, client_ip)
+                )
+
+        # Get feature flags for this plan
+        feat_rows = conn.execute(
+            "SELECT feature_key, enabled FROM plan_features WHERE plan_type=?",
+            (row["plan_type"],)
+        ).fetchall()
+        features = {r["feature_key"]: bool(r["enabled"]) for r in feat_rows}
+
+        conn.execute("UPDATE licenses SET last_login=? WHERE id=?", (now_ts, row["id"]))
+        conn.commit(); conn.close()
+        self._log_activity(gmail, "sketchup_login", True, hwid)
+        _rl_reset(client_ip)  # Clear rate limit counter on successful login
+
+        session_token = make_token(
+            {"sub": gmail, "role": row["role"], "lid": row["id"], "plan": row["plan_type"]},
+            expires_in=28800
+        )
+
+        # ââ Compute days remaining until expiry âââââââââââââââââââââââââââââââââ
+        expiry_str     = row["expiry_date"] if row["expiry_date"] else None
+        days_remaining = None
+        if expiry_str:
+            try:
+                from datetime import date as _date_cls
+                exp            = _date_cls.fromisoformat(expiry_str)
+                days_remaining = (exp - _date_cls.today()).days
+            except Exception:
+                pass
+
+        self._json(200, {
+            "ok":            True,
+            "name":          row["name"],
+            "role":          row["role"],
+            "plan":          row["plan_type"],
+            "features":      features,
+            "token":         session_token,
+            "expiry_date":   expiry_str,
+            "days_remaining": days_remaining,
+            "max_devices":   row["max_devices"] if row["max_devices"] else 2,
+        })
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ License Info Endpoint (Settings Hub) âââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _license_info(self):
+        """POST /api/license-info  { gmail, license_key, hwid }
+        Returns full license info including expiry_date for Settings Hub display.
+        Does NOT register HWID or update last_login â read-only lookup."""
+        body  = self._body()
+        gmail = body.get("gmail", "").strip().lower()
+        key   = body.get("license_key", "").strip()
+        hwid  = body.get("hwid", "").strip()
+
+        if not gmail or not key:
+            self._json(400, {"ok": False, "error": "Missing credentials"}); return
+
+        conn = get_db()
+        row  = conn.execute(
+            "SELECT * FROM licenses WHERE gmail=? AND license_key=? AND active=1",
+            (gmail, key)
+        ).fetchone()
+
+        if not row:
+            conn.close()
+            self._json(401, {"ok": False, "error": "Invalid credentials"}); return
+
+        # Compute days remaining
+        expiry_str     = row["expiry_date"] if row["expiry_date"] else None
+        days_remaining = None
+        if expiry_str:
+            try:
+                from datetime import date as _date_cls
+                exp            = _date_cls.fromisoformat(expiry_str)
+                days_remaining = (exp - _date_cls.today()).days
+            except Exception:
+                pass
+
+        # Count registered devices
+        hw_rows      = conn.execute(
+            "SELECT hwid, last_seen, ip_addr FROM registered_hwids WHERE license_id=?",
+            (row["id"],)
+        ).fetchall()
+        hwid_list    = [r["hwid"] for r in hw_rows]
+        current_hwid = hwid
+
+        conn.close()
+
+        self._json(200, {
+            "ok":            True,
+            "gmail":         row["gmail"],
+            "name":          row["name"],
+            "role":          row["role"],
+            "plan":          row["plan_type"],
+            "license_key":   row["license_key"],
+            "expiry_date":   expiry_str,
+            "days_remaining": days_remaining,
+            "max_devices":   row["max_devices"] if row["max_devices"] else 2,
+            "current_hwid":  current_hwid,
+            "hwid_list":     hwid_list,
+        })
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ Deactivate Device Endpoint ââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _deactivate_device(self):
+        """POST /api/deactivate-device
+        Headers: Authorization: Bearer <session_token>
+        Body:    { "hwid": "..." }
+        Removes the HWID from registered_hwids so the device slot is freed."""
+        payload = self._require_auth()
+        if not payload: return
+        body = self._body()
+        hwid = body.get("hwid", "").strip()
+        if not hwid:
+            self._json(400, {"ok": False, "error": "Missing hwid"}); return
+        lid = payload.get("lid", "")
+        if not lid:
+            self._json(401, {"ok": False, "error": "Invalid token"}); return
+        conn = get_db()
+        result = conn.execute(
+            "DELETE FROM registered_hwids WHERE license_id=? AND hwid=?", (lid, hwid)
+        )
+        conn.commit()
+        removed = result.rowcount > 0
+        conn.close()
+        self._log_activity(payload.get("sub", "?"), "device_deactivated", removed, hwid)
+        if removed:
+            self._json(200, {"ok": True, "message": "Device deactivated successfully."})
+        else:
+            self._json(404, {"ok": False, "error": "Device not found for this license."})
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ Secure Download Endpoint ââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _download_model(self):
+        """
+        POST /api/download-model
+        Headers: Authorization: Bearer <session_token>
+        Body:    { "model_id": "...", "hwid": "..." }
+
+        Checks:
+          1. Valid session token
+          2. License active & not expired
+          3. HWID matches a registered device
+          4. Daily download limit not exceeded
+          5. Free users cannot download premium models
+          6. Generates a short-lived Cloudflare R2 signed URL
+        """
+        payload = self._require_auth()
+        if not payload: return
+
+        body     = self._body()
+        model_id = body.get("model_id", "").strip()
+        hwid     = body.get("hwid",     "").strip()
+        gmail    = payload.get("sub")
+        lid      = payload.get("lid")
+
+        if not model_id:
+            self._json(400, {"ok": False, "error": "model_id required"}); return
+
+        conn = get_db()
+
+        # ââ Re-verify license is still active & not expired âââââââââââââââââ
+        lic = conn.execute("SELECT * FROM licenses WHERE id=? AND active=1", (lid,)).fetchone()
+        if not lic:
+            conn.close()
+            self._json(403, {"ok": False, "error": "License suspended or not found."}); return
+
+        if lic["expiry_date"]:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if lic["expiry_date"] < today:
+                conn.close()
+                self._json(403, {"ok": False, "error": "License expired.", "code": "EXPIRED"}); return
+
+        # ââ Verify HWID is registered for this license âââââââââââââââââââââââ
+        if hwid:
+            hw_row = conn.execute(
+                "SELECT 1 FROM registered_hwids WHERE license_id=? AND hwid=?", (lid, hwid)
+            ).fetchone()
+            if not hw_row:
+                conn.close()
+                self._log_activity(gmail, "download_hwid_mismatch", False, hwid)
+                self._json(403, {"ok": False, "error": "Device not registered for this license.", "code": "HWID_MISMATCH"}); return
+
+        # ââ Check daily download limit âââââââââââââââââââââââââââââââââââââââ
+        daily_limit = lic["daily_download_limit"]
+        if daily_limit is None:
+            daily_limit = PLAN_DAILY_LIMITS.get(lic["plan_type"], 5)
+
+        today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_count  = conn.execute(
+            "SELECT COUNT(*) as n FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
+            (lid, f"{today_prefix}%")
+        ).fetchone()["n"]
+
+        if today_count >= daily_limit:
+            conn.close()
+            self._json(429, {
+                "ok":    False,
+                "error": f"Daily download limit reached ({daily_limit}/day). Resets at midnight UTC.",
+                "code":  "DAILY_LIMIT",
+                "limit": daily_limit,
+                "used":  today_count,
+            }); return
+
+        # ââ Resolve model â R2 path & bucket âââââââââââââââââââââââââââââââââ
+        # model_id can be either:
+        #   (a) A raw R2 path from abimcon-assets  e.g. "SN/house.skp"
+        #   (b) A legacy DB UUID from abimcon-models
+        r2_key    = None
+        r2_bucket = R2_BUCKET_NAME
+        model_name = model_id  # fallback display name
+
+        if "/" in model_id or model_id.lower().endswith(".skp"):
+            # ââ Direct R2 path (abimcon-assets dynamic scan(ââââââââââââââ
+            r2_key    = model_id
+            r2_bucket = R2_ASSETS_BUCKET
+            base_filename = model_id.split("/")[-1]
+            model_name = base_filename[:-4] if base_filename.lower().endswith(".skp") else base_filename
+            # Plan check: folders named "pro" require pro plan
+            folder = model_id.split("/")[0] if "/" in model_id else ""
+            if folder.lower() == "pro" and lic["plan_type"] != "pro":
+                conn.close()
+                self._json(403, {
+                    "ok": False,
+                    "error": "This model requires a Pro plan. Please upgrade.",
+                    "code": "PLAN_REQUIRED"
+                }); return
+        else:
+            # ââ Legacy DB lookup (abimcon-models bucket) ââââââââââââââââââ
+            model = conn.execute("SELECT * FROM models WHERE model_id=?", (model_id,)).fetchone()
+            if not model:
+                conn.close()
+                self._json(404, {"ok": False, "error": "Model not found."}); return
+            keys = model.keys()
+            model_plan = model["plan_required"] if "plan_required" in keys else ("pro" if model["is_premium"] else "free")
+            if model_plan == "pro" and lic["plan_type"] != "pro":
+                conn.close()
+                self._json(403, {
+                    "ok": False, "error": "This model requires a Pro plan. Please upgrade.",
+                    "code": "PLAN_REQUIRED"
+                }); return
+            r2_key    = model["r2_path"]
+            r2_bucket = R2_BUCKET_NAME
+            model_name = model["name"]
+
+        # ââ Generate signed URL ââââââââââââââââââââââââââââââââââââââââââââââ
+        signed_url = generate_r2_signed_url(r2_key, bucket=r2_bucket)
+        if not signed_url:
+            conn.close()
+            self._json(503, {"ok": False, "error": "Download service unavailable. R2 not configured."}); return
+
+        # ââ Log the download âââââââââââââââââââââââââââââââââââââââââââââââââ
+        now_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        conn.execute(
+            "INSERT INTO download_logs (license_id,model_id,downloaded_at,ip_addr,hwid) VALUES (?,?,?,?,?)",
+            (lid, model_id, now_ts, self._get_client_ip(), hwid or None)
+        )
+        conn.commit(); conn.close()
+        self._log_activity(gmail, "model_download", True, hwid)
+
+        self._json(200, {
+            "ok":         True,
+            "url":        signed_url,
+            "filename":   model_name + ".skp",
+            "expires_in": R2_SIGNED_URL_TTL,
+            "model_name": model_name,
+            "used_today": today_count + 1,
+            "limit_today": daily_limit,
+        })
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ License Admin Handlers ââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _get_licenses(self):
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute("SELECT * FROM licenses ORDER BY created_at").fetchall()
+        logs = conn.execute(
+            "SELECT COUNT(*) as n FROM activity_log WHERE action='sketchup_login' AND success=1"
+        ).fetchone()
+
+        lics = []
+        today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        for r in rows:
+            d = dict(r)
+            d["device_count"] = conn.execute(
+                "SELECT COUNT(*) as n FROM registered_hwids WHERE license_id=?", (d["id"],)
+            ).fetchone()["n"]
+            d["downloads_today"] = conn.execute(
+                "SELECT COUNT(*) as n FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
+                (d["id"], f"{today_prefix}%")
+            ).fetchone()["n"]
+            # Fetch registered HWIDs for display
+            hw_rows = conn.execute(
+                "SELECT hwid, last_seen, ip_addr FROM registered_hwids WHERE license_id=? ORDER BY last_seen DESC",
+                (d["id"],)
+            ).fetchall()
+            d["hwids"] = [dict(h) for h in hw_rows]
+            lics.append(d)
+
+        conn.close()
+        self._json(200, {
+            "licenses":     lics,
+            "total":        len(lics),
+            "active":       sum(1 for l in lics if l["active"]),
+            "suspended":    sum(1 for l in lics if not l["active"]),
+            "total_logins": logs["n"] if logs else 0,
+        })
+
+    def _get_logs(self):
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute("SELECT * FROM activity_log ORDER BY id DESC LIMIT 100").fetchall()
+        conn.close()
+        self._json(200, {"logs": [dict(r) for r in rows]})
+
+    def _get_hwids(self, lid):
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT * FROM registered_hwids WHERE license_id=? ORDER BY last_seen DESC", (lid,)
+        ).fetchall()
+        conn.close()
+        self._json(200, {"hwids": [dict(r) for r in rows]})
+
+    def _get_download_stats(self, lid):
+        if not self._require_admin(): return
+        conn = get_db()
+        today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_count  = conn.execute(
+            "SELECT COUNT(*) as n FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
+            (lid, f"{today_prefix}%")
+        ).fetchone()["n"]
+        recent = conn.execute(
+            "SELECT dl.*, m.name as model_name FROM download_logs dl "
+            "LEFT JOIN models m ON dl.model_id=m.model_id "
+            "WHERE dl.license_id=? ORDER BY dl.id DESC LIMIT 20", (lid,)
+        ).fetchall()
+        conn.close()
+        self._json(200, {"today": today_count, "recent": [dict(r) for r in recent]})
+
+    def _reset_hwids(self, lid):
+        if not self._require_admin(): return
+        conn = get_db()
+        count = conn.execute("SELECT COUNT(*) as n FROM registered_hwids WHERE license_id=?", (lid,)).fetchone()["n"]
+        conn.execute("DELETE FROM registered_hwids WHERE license_id=?", (lid,))
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "unbound": count})
+
+    def _reset_downloads(self, lid):
+        if not self._require_admin(): return
+        conn = get_db()
+        today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        count = conn.execute(
+            "SELECT COUNT(*) as n FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
+            (lid, f"{today_prefix}%")
+        ).fetchone()["n"]
+        conn.execute(
+            "DELETE FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
+            (lid, f"{today_prefix}%")
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "reset": count})
+
+    def _add_license(self):
+        if not self._require_admin(): return
+        body    = self._body()
+        name    = body.get("name",    "").strip()
+        gmail   = body.get("gmail",   "").strip().lower()
+        key     = body.get("license_key", "").strip().upper()
+        role    = body.get("role",    "editor")
+        plan    = body.get("plan_type",   "free")
+        max_dev = int(body.get("max_devices", 2))
+        expiry  = body.get("expiry_date", None) or None
+        ddl     = body.get("daily_download_limit", None)
+        if ddl is not None: ddl = int(ddl)
+        # Trial plan: auto-set expiry if not provided
+        if plan == "trial" and not expiry:
+            trial_days = int(body.get("trial_days", 10))
+            expiry = (datetime.now(timezone.utc) + timedelta(days=trial_days)).strftime("%Y-%m-%d")
+        if not name or not gmail or not key:
+            self._json(400, {"error": "name, gmail, license_key required"}); return
+        now  = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        conn = get_db()
+        try:
+            conn.execute(
+                "INSERT INTO licenses (id,gmail,license_key,name,role,plan_type,active,max_devices,daily_download_limit,expiry_date,created_at) "
+                "VALUES (?,?,?,?,?,?,1,?,?,?,?)",
+                (str(uuid.uuid4()), gmail, key, name, role, plan, max_dev, ddl, expiry, now)
+            )
+            conn.commit()
+            self._json(201, {"ok": True})
+        except sqlite3.IntegrityError as e:
+            self._json(409, {"error": f"Duplicate email or key: {e}"})
+        finally:
+            conn.close()
+
+    def _update_license(self, lid):
+        if not self._require_admin(): return
+        body = self._body()
+        fields, vals = [], []
+        for col in ("name", "gmail", "license_key", "role", "plan_type", "expiry_date"):
+            if col in body:
+                fields.append(f"{col}=?")
+                v = body[col].strip() if body[col] else None
+                if col == "gmail" and v:       v = v.lower()
+                if col == "license_key" and v: v = v.upper()
+                vals.append(v)
+        if "active" in body:
+            fields.append("active=?"); vals.append(1 if body["active"] else 0)
+        if "max_devices" in body:
+            fields.append("max_devices=?"); vals.append(max(1, int(body["max_devices"])))
+        if "daily_download_limit" in body:
+            fields.append("daily_download_limit=?")
+            vals.append(int(body["daily_download_limit"]) if body["daily_download_limit"] is not None else None)
+        if not fields:
+            self._json(400, {"error": "Nothing to update"}); return
+        vals.append(lid)
+        conn = get_db()
+        try:
+            conn.execute(f"UPDATE licenses SET {','.join(fields)} WHERE id=?", vals)
+            conn.commit()
+            self._json(200, {"ok": True})
+        except sqlite3.IntegrityError as e:
+            self._json(409, {"error": f"Duplicate: {e}"})
+        finally:
+            conn.close()
+
+    def _extend_license(self, lid):
+        """POST /api/admin/licenses/:id/extend  { "days": 90 }  OR  { "expiry_date": "2027-01-01" }"""
+        if not self._require_admin(): return
+        body = self._body()
+        from datetime import date as _date_cls, timedelta as _td
+        conn = get_db()
+        row  = conn.execute("SELECT expiry_date FROM licenses WHERE id=?", (lid,)).fetchone()
+        if not row:
+            conn.close()
+            self._json(404, {"error": "License not found"}); return
+
+        if "expiry_date" in body and body["expiry_date"]:
+            new_expiry = body["expiry_date"].strip()
+        elif "days" in body:
+            try:
+                days = int(body["days"])
+            except (TypeError, ValueError):
+                conn.close()
+                self._json(400, {"error": "days must be an integer"}); return
+            base = _date_cls.today()
+            if row["expiry_date"]:
+                try:
+                    existing = _date_cls.fromisoformat(row["expiry_date"])
+                    if existing > base:
+                        base = existing        # extend from current expiry, not today
+                except Exception:
+                    pass
+            new_expiry = (base + _td(days=days)).isoformat()
+        else:
+            conn.close()
+            self._json(400, {"error": "Provide 'days' or 'expiry_date'"}); return
+
+        conn.execute("UPDATE licenses SET expiry_date=? WHERE id=?", (new_expiry, lid))
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "expiry_date": new_expiry})
+
+    def _delete_license(self, lid):
+        if not self._require_admin(): return
+        conn = get_db()
+        conn.execute("DELETE FROM registered_hwids WHERE license_id=?", (lid,))
+        conn.execute("DELETE FROM download_logs     WHERE license_id=?", (lid,))
+        conn.execute("DELETE FROM licenses          WHERE id=?",         (lid,))
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True})
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ Plan Feature Management âââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _get_plan_features_public(self):
+        """GET /api/plan-features?plan=pro â no auth, for SketchUp extension."""
+        qs = parse_qs(urlparse(self.path).query)
+        plan_type = qs.get("plan", ["free"])[0].strip().lower()
+        if not re.match(r'^[a-z0-9_]+$', plan_type):
+            self._json(400, {"error": "Invalid plan"}); return
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT feature_key, enabled FROM plan_features WHERE plan_type=?",
+            (plan_type,)
+        ).fetchall()
+        conn.close()
+        features = {r["feature_key"]: bool(r["enabled"]) for r in rows}
+        self._json(200, {"plan": plan_type, "features": features})
+
+    def _get_plan_features(self):
+        """GET /api/admin/plan-features â return feature matrix for admin UI."""
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT plan_type, feature_key, label, enabled, sort_order "
+            "FROM plan_features ORDER BY sort_order, feature_key"
+        ).fetchall()
+        conn.close()
+
+        plans    = []
+        features = {}   # feature_key -> {label, sort_order}
+        matrix   = {}   # plan_type   -> {feature_key -> bool}
+
+        for r in rows:
+            pt, fk = r["plan_type"], r["feature_key"]
+            if pt not in plans:
+                plans.append(pt)
+                matrix[pt] = {}
+            if fk not in features:
+                features[fk] = {"label": r["label"], "sort_order": r["sort_order"]}
+            matrix[pt][fk] = bool(r["enabled"])
+
+        # canonical plan order: free, pro, trial, then any custom
+        order = ["free", "pro", "trial"]
+        plans = sorted(plans, key=lambda p: order.index(p) if p in order else 99)
+
+        self._json(200, {"plans": plans, "features": features, "matrix": matrix})
+
+    def _update_plan_feature(self):
+        """PUT /api/admin/plan-features â toggle one feature for one plan."""
+        if not self._require_admin(): return
+        body        = self._body()
+        plan_type   = body.get("plan_type",   "").strip()
+        feature_key = body.get("feature_key", "").strip()
+        enabled     = bool(body.get("enabled", False))
+
+        if not plan_type or not feature_key:
+            self._json(400, {"error": "plan_type and feature_key required"}); return
+
+        conn = get_db()
+        row = conn.execute(
+            "SELECT id FROM plan_features WHERE plan_type=? AND feature_key=?",
+            (plan_type, feature_key)
+        ).fetchone()
+
+        if row:
+            conn.execute(
+                "UPDATE plan_features SET enabled=? WHERE plan_type=? AND feature_key=?",
+                (1 if enabled else 0, plan_type, feature_key)
+            )
+        else:
+            label      = body.get("label",      feature_key.replace("_", " ").title())
+            sort_order = body.get("sort_order",  99)
+            conn.execute(
+                "INSERT INTO plan_features (id,plan_type,feature_key,label,enabled,sort_order) "
+                "VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4()), plan_type, feature_key, label, 1 if enabled else 0, sort_order)
+            )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True})
+
+    def _add_plan_or_feature(self):
+        """POST /api/admin/plan-features â add a new plan or a new feature key.
+        Body: { "action": "add_plan",    "plan_type": "enterprise", "default_enabled": true }
+           or { "action": "add_feature", "feature_key": "reports",  "label": "Reports" }
+        """
+        if not self._require_admin(): return
+        body   = self._body()
+        action = body.get("action", "").strip()
+        conn   = get_db()
+
+        if action == "add_plan":
+            plan_type = body.get("plan_type", "").strip().lower()
+            if not plan_type or not re.match(r'^[a-z0-9_]+$', plan_type):
+                conn.close()
+                self._json(400, {"error": "Invalid plan_type (lowercase alphanumeric + underscore only)"}); return
+            # Check if already exists
+            if conn.execute("SELECT COUNT(*) FROM plan_features WHERE plan_type=?", (plan_type,)).fetchone()[0] > 0:
+                conn.close()
+                self._json(409, {"error": f"Plan '{plan_type}' already exists"}); return
+            # Copy feature structure from 'pro' (all enabled by default if default_enabled=true)
+            default_enabled = 1 if body.get("default_enabled", True) else 0
+            templates = conn.execute(
+                "SELECT feature_key, label, sort_order FROM plan_features WHERE plan_type='pro'"
+            ).fetchall()
+            for t in templates:
+                conn.execute(
+                    "INSERT INTO plan_features (id,plan_type,feature_key,label,enabled,sort_order) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), plan_type, t["feature_key"], t["label"], default_enabled, t["sort_order"])
+                )
+            conn.commit(); conn.close()
+            self._json(201, {"ok": True, "plan_type": plan_type})
+
+        elif action == "add_feature":
+            feature_key = body.get("feature_key", "").strip().lower().replace(" ", "_")
+            label       = body.get("label", feature_key.replace("_", " ").title())
+            if not feature_key or not re.match(r'^[a-z0-9_]+$', feature_key):
+                conn.close()
+                self._json(400, {"error": "Invalid feature_key (lowercase alphanumeric + underscore only)"}); return
+            max_sort = conn.execute("SELECT COALESCE(MAX(sort_order),0) FROM plan_features").fetchone()[0]
+            plans    = conn.execute("SELECT DISTINCT plan_type FROM plan_features").fetchall()
+            added = 0
+            for p in plans:
+                try:
+                    conn.execute(
+                        "INSERT INTO plan_features (id,plan_type,feature_key,label,enabled,sort_order) "
+                        "VALUES (?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), p["plan_type"], feature_key, label, 0, max_sort + 1)
+                    )
+                    added += 1
+                except sqlite3.IntegrityError:
+                    pass
+            conn.commit(); conn.close()
+            self._json(201, {"ok": True, "feature_key": feature_key, "plans_updated": added})
+
+        else:
+            conn.close()
+            self._json(400, {"error": "action must be 'add_plan' or 'add_feature'"})
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ AssetBrowser JS Endpoints (v3.1) ââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _license_by_key(self, key):
+        """Validate a raw license key string. Returns (row, None) or (None, error_dict)."""
+        if not key:
+            return None, {"ok": False, "error": "License key required", "code": "NO_KEY"}
+        conn = get_db()
+        row  = conn.execute(
+            "SELECT * FROM licenses WHERE license_key=? AND active=1", (key.strip().upper(),)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None, {"ok": False, "error": "Invalid or inactive license key", "code": "INVALID_KEY"}
+        if row["expiry_date"]:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if row["expiry_date"] < today:
+                return None, {"ok": False, "error": "License expired. Contact your administrator.", "code": "EXPIRED"}
+        return row, None
+
+    def _get_assets(self):
+        """
+        GET /api/assets
+        Authorization: Bearer <license_key>   (raw key, not JWT)
+        Returns asset list shaped for the AssetBrowser JS UI.
+        """
+        auth = self.headers.get("Authorization", "")
+        key  = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        lic, err = self._license_by_key(key)
+        if err:
+            self._json(401, err); return
+        plan = lic["plan_type"]
+        conn = get_db()
+        if plan == "pro":
+            rows = conn.execute(
+                "SELECT model_id, name, description, category, tags, thumbnail, "
+                "file_size_mb, plan_required FROM models WHERE active=1 ORDER BY category, name"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT model_id, name, description, category, tags, thumbnail, "
+                "file_size_mb, plan_required FROM models WHERE active=1 AND plan_required='free' ORDER BY category, name"
+            ).fetchall()
+        conn.close()
+        assets = []
+        for r in rows:
+            d = dict(r)
+            d["id"] = d.pop("model_id")   # JS expects "id"
+            d["thumbnail"] = _sign_thumbnail(d.get("thumbnail", ""))
+            assets.append(d)
+        self._json(200, {"ok": True, "plan": plan, "assets": assets})
+
+    def _download(self):
+        """
+        POST /api/download
+        Body: { license_key, hwid, model_id }
+        Validates by raw license key (not JWT), enforces all limits, returns signed URL.
+        """
+        body     = self._body()
+        key      = body.get("license_key", "").strip()
+        hwid     = body.get("hwid",        "").strip()
+        model_id = body.get("model_id",    "").strip()
+
+        if not model_id:
+            self._json(400, {"ok": False, "error": "model_id required"}); return
+
+        lic, err = self._license_by_key(key)
+        if err:
+            self._json(401, err); return
+
+        lid       = lic["id"]
+        gmail     = lic["gmail"]
+        plan      = lic["plan_type"]
+        now_ts    = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        client_ip = self._get_client_ip()
+
+        conn = get_db()
+
+        # ââ HWID: register new devices, enforce device limit âââââââââââââââââ
+        if hwid:
+            hw_rows = conn.execute(
+                "SELECT hwid FROM registered_hwids WHERE license_id=?", (lid,)
+            ).fetchall()
+            known   = [r["hwid"] for r in hw_rows]
+            max_dev = lic["max_devices"] if lic["max_devices"] else 2
+            if hwid in known:
+                conn.execute(
+                    "UPDATE registered_hwids SET last_seen=?, ip_addr=? WHERE license_id=? AND hwid=?",
+                    (now_ts, client_ip, lid, hwid)
+                )
+            else:
+                if len(known) >= max_dev:
+                    conn.close()
+                    self._log_activity(gmail, "download_hwid_limit", False, hwid)
+                    self._json(403, {
+                        "ok":    False,
+                        "error": f"Device limit reached ({max_dev} devices). Contact your admin.",
+                        "code":  "HWID_LIMIT",
+                    }); return
+                conn.execute(
+                    "INSERT INTO registered_hwids (license_id,hwid,first_seen,last_seen,ip_addr) VALUES (?,?,?,?,?)",
+                    (lid, hwid, now_ts, now_ts, client_ip)
+                )
+            conn.commit()
+
+        # ââ Daily download limit âââââââââââââââââââââââââââââââââââââââââââââ
+        daily_limit  = lic["daily_download_limit"]
+        if daily_limit is None:
+            daily_limit = PLAN_DAILY_LIMITS.get(plan, 5)
+        today_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_count  = conn.execute(
+            "SELECT COUNT(*) as n FROM download_logs WHERE license_id=? AND downloaded_at LIKE ?",
+            (lid, f"{today_prefix}%")
+        ).fetchone()["n"]
+        if today_count >= daily_limit:
+            conn.close()
+            self._json(429, {
+                "ok":    False,
+                "error": f"Daily download limit reached ({daily_limit}/day). Resets at midnight UTC.",
+                "code":  "DAILY_LIMIT",
+                "limit": daily_limit,
+                "used":  today_count,
+            }); return
+
+        # ââ Get model ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        model = conn.execute("SELECT * FROM models WHERE model_id=?", (model_id,)).fetchone()
+        if not model:
+            conn.close()
+            self._json(404, {"ok": False, "error": "Model not found.", "code": "MODEL_NOT_FOUND"}); return
+
+        # ââ Plan check âââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+        keys = model.keys()
+        model_plan = model["plan_required"] if "plan_required" in keys else ("pro" if model["is_premium"] else "free")
+        if model_plan == "pro" and plan != "pro":
+            conn.close()
+            self._json(403, {"ok": False, "error": "This model requires a Pro plan. Please upgrade.", "code": "PLAN_REQUIRED"}); return
+
+        # ââ Generate R2 signed URL âââââââââââââââââââââââââââââââââââââââââââ
+        signed_url = generate_r2_signed_url(model["r2_path"])
+        if not signed_url:
+            conn.close()
+            self._json(503, {"ok": False, "error": "Download service unavailable. R2 not configured."}); return
+
+        # ââ Log the download âââââââââââââââââââââââââââââââââââââââââââââââââ
+        conn.execute(
+            "INSERT INTO download_logs (license_id,model_id,downloaded_at,ip_addr,hwid) VALUES (?,?,?,?,?)",
+            (lid, model_id, now_ts, client_ip, hwid or None)
+        )
+        conn.commit(); conn.close()
+        self._log_activity(gmail, "model_download", True, hwid)
+
+        self._json(200, {
+            "ok":         True,
+            "url":        signed_url,
+            "filename":   model["name"] + ".skp",
+            "expires_in": R2_SIGNED_URL_TTL,
+            "used_today": today_count + 1,
+            "limit_today": daily_limit,
+        })
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ User-facing Model List ââââââââââââââââââââââââââââââââââââââââââââââââ
+    # GET /api/models
+    # Requires: Authorization: Bearer <session_token>
+    # Returns models filtered by the user's plan (free sees free only, pro sees all).
+    def _get_user_models(self):
+        """
+        GET /api/models
+        Requires: Authorization: Bearer <session_token>
+
+        Dynamically scans the abimcon-assets R2 bucket.
+        Every sub-folder becomes a Category.  All .skp files inside are
+        returned as models.  Thumbnails are expected at the same path but
+        with a .jpg or .png extension (signed URL is generated; the
+        front-end onerror fallback handles missing ones gracefully).
+        """
+        payload = self._require_auth()
+        if not payload: return
+        plan = payload.get("plan", "free")
+
+        if not HAS_BOTO3 or not all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]):
+            self._json(503, {"ok": False, "error": "R2 not configured on server."}); return
+
+        try:
+            s3 = boto3.client(
+                "s3",
+                endpoint_url          = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+                aws_access_key_id     = R2_ACCESS_KEY_ID,
+                aws_secret_access_key = R2_SECRET_ACCESS_KEY,
+                config                = BotoConfig(signature_version="s3v4"),
+                region_name           = "auto",
+            )
+
+            # ââ Single-pass: collect ALL bucket keys + sizes ââââââââââââââ
+            all_objects = {}   # key â size_bytes
+            paginator   = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=R2_ASSETS_BUCKET):
+                for obj in page.get("Contents", []):
+                    all_objects[obj["Key"]] = obj["Size"]
+
+            # Build a set of all non-skp keys for fast thumbnail existence check
+            all_keys = set(all_objects.keys())
+
+            models_out = []
+            for key, size in all_objects.items():
+                # Only .skp files; skip folder marker objects
+                if not key.lower().endswith(".skp") or key.endswith("/"):
+                    continue
+
+                parts    = key.split("/")
+                category = parts[0] if len(parts) > 1 else "General"
+                filename = parts[-1]
+                name     = filename[:-4]   # strip .skp extension
+
+                # Folders named "pro" (case-insensitive) â pro-only models
+                plan_required = "pro" if category.lower() == "pro" else "free"
+
+                # Free users don't see pro-only models
+                if plan_required == "pro" and plan != "pro":
+                    continue
+
+                # Thumbnail: only generate signed URL if .jpg or .png actually EXISTS
+                base_key  = key[:-4]
+                if base_key + ".jpg" in all_keys:
+                    thumb_url = generate_r2_signed_url(base_key + ".jpg", ttl=3600, bucket=R2_ASSETS_BUCKET) or ""
+                elif base_key + ".png" in all_keys:
+                    thumb_url = generate_r2_signed_url(base_key + ".png", ttl=3600, bucket=R2_ASSETS_BUCKET) or ""
+                else:
+                    thumb_url = ""   # no thumbnail â HTML shows placeholder
+
+                models_out.append({
+                    "model_id":      key,           # R2 path used as unique ID
+                    "name":          name,
+                    "category":      category,
+                    "thumbnail":     thumb_url,
+                    "file_size_mb":  round(size / 1048576, 1),
+                    "plan_required": plan_required,
+                    "tags":          category.lower(),
+                    "description":   "",
+                })
+
+            # Sort by category then name
+            models_out.sort(key=lambda m: (m["category"].lower(), m["name"].lower()))
+            self._json(200, {"ok": True, "plan": plan, "models": models_out})
+
+        except Exception as e:
+            print(f"[R2] list_objects error: {e}")
+            self._json(500, {"ok": False, "error": f"R2 scan failed: {e}"})
+
+    # ââ Model Admin Handlers ââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _get_models(self):
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute("SELECT * FROM models ORDER BY created_at DESC").fetchall()
+        conn.close()
+        self._json(200, {"models": [dict(r) for r in rows], "total": len(rows)})
+
+    def _add_model(self):
+        if not self._require_admin(): return
+        body         = self._body()
+        name         = body.get("name",         "").strip()
+        r2_path      = body.get("r2_path",      "").strip()
+        is_premium   = 1 if body.get("is_premium") else 0
+        plan_required = body.get("plan_required", "pro" if is_premium else "free")
+        file_size    = int(body.get("file_size", 0))
+        file_size_mb = float(body.get("file_size_mb", round(file_size / 1048576, 2)))
+        description  = body.get("description",  "").strip()
+        category     = body.get("category",     "General").strip()
+        tags         = body.get("tags",         "").strip()
+        thumbnail    = body.get("thumbnail",    "").strip()
+        if not name or not r2_path:
+            self._json(400, {"error": "name and r2_path required"}); return
+        now  = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        conn = get_db()
+        mid  = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO models (model_id,name,r2_path,is_premium,plan_required,file_size,file_size_mb,"
+            "description,category,tags,thumbnail,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+            (mid, name, r2_path, is_premium, plan_required, file_size, file_size_mb,
+             description, category, tags, thumbnail, now)
+        )
+        conn.commit(); conn.close()
+        self._json(201, {"ok": True, "model_id": mid})
+
+    def _update_model(self, mid):
+        if not self._require_admin(): return
+        body = self._body()
+        fields, vals = [], []
+        for col in ("name", "r2_path", "description", "category", "tags", "thumbnail"):
+            if col in body:
+                fields.append(f"{col}=?"); vals.append(body[col].strip() if body[col] else "")
+        if "is_premium" in body:
+            ip = 1 if body["is_premium"] else 0
+            fields.append("is_premium=?"); vals.append(ip)
+            # Sync plan_required with is_premium if not explicitly provided
+            if "plan_required" not in body:
+                fields.append("plan_required=?"); vals.append("pro" if ip else "free")
+        if "plan_required" in body:
+            fields.append("plan_required=?"); vals.append(body["plan_required"] or "free")
+        if "file_size" in body:
+            fields.append("file_size=?"); vals.append(int(body["file_size"]))
+        if "file_size_mb" in body:
+            fields.append("file_size_mb=?"); vals.append(float(body["file_size_mb"] or 0))
+        if "active" in body:
+            fields.append("active=?"); vals.append(1 if body["active"] else 0)
+        if not fields:
+            self._json(400, {"error": "Nothing to update"}); return
+        vals.append(mid)
+        conn = get_db()
+        conn.execute(f"UPDATE models SET {','.join(fields)} WHERE model_id=?", vals)
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True})
+
+    def _delete_model(self, mid):
+        if not self._require_admin(): return
+        conn = get_db()
+        conn.execute("DELETE FROM models WHERE model_id=?", (mid,))
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True})
+
+
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââ AI Suite (Banana Pro) âââââââââââââââââââââââââââââââââââââââââââââââââ
+    # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+    def _ai_validate_token_and_credits(self, cost):
+        """Validate session token + check/deduct credits. Returns (payload, gmail, error)."""
+        payload = self._require_auth()
+        if not payload:
+            return None, None, None   # _require_auth already sent response
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        # Ensure wallet exists
+        conn.execute(
+            "INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 10)",
+            (gmail,)
+        )
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        credits = row['credits'] if row else 0
+        if credits < cost:
+            conn.close()
+            self._json(402, {"ok": False, "error": f"Insufficient credits. You need {cost} but have {credits}.", "code": "INSUFFICIENT_CREDITS"})
+            return None, None, True
+        conn.close()
+        return payload, gmail, False
+
+    def _ai_deduct_credits(self, gmail, cost, tx_type, description):
+        conn = get_db()
+        conn.execute("UPDATE ai_wallets SET credits = credits - ?, total_used = total_used + ? WHERE gmail=?", (cost, cost, gmail))
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        balance = row['credits'] if row else 0
+        conn.execute(
+            "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+            (gmail, tx_type, -cost, balance, description)
+        )
+        conn.commit(); conn.close()
+        return balance
+
+    def _ai_chat(self):
+        """POST /api/ai/chat â proxy to Gemini 1.5 Pro (1 credit)"""
+        if not GEMINI_API_KEY:
+            self._json(503, {"ok": False, "error": "AI service not configured"}); return
+        payload, gmail, err = self._ai_validate_token_and_credits(AI_CHAT_COST)
+        if payload is None: return
+
+        body         = self._body()
+        user_message = body.get("message", "").strip()
+        context_json = body.get("context_json")
+        image_b64    = body.get("image_base64")
+
+        if not user_message:
+            self._json(400, {"ok": False, "error": "message is required"}); return
+
+        # Build Gemini request
+        system_prompt = (
+            "You are Banana Pro, an expert BIM & BOQ assistant for AbimconStudio SketchUp extension. "
+            "You specialize in construction cost analysis, bill of quantities, materials, and architectural advice. "
+            "When given BOQ JSON data, analyze quantities, costs, materials, and give professional construction advice. "
+            "Be concise, practical, and use professional construction terminology. "
+            "Format responses with clear sections. Use Lao/Thai context when relevant."
+        )
+
+        parts = []
+        if context_json:
+            parts.append({"text": f"BOQ Context Data:\n{json.dumps(context_json, ensure_ascii=False, indent=2)}\n\n"})
+        if image_b64:
+            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+        parts.append({"text": user_message})
+
+        gemini_body = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        }
+
+        try:
+            url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}"
+            req  = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
+            with _urllib_req.urlopen(req, timeout=55) as r:
+                resp_data = json.loads(r.read())
+            ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"Gemini API error: {str(e)}"}); return
+
+        credits_after = self._ai_deduct_credits(gmail, AI_CHAT_COST, "chat", "Chat: "+user_message[:60])
+        self._json(200, {"ok": True, "response": ai_text, "credits_after": credits_after})
+
+    def _ai_image(self):
+        """POST /api/ai/image â Gemini image generation (10 credits)"""
+        if not GEMINI_API_KEY:
+            self._json(503, {"ok": False, "error": "AI service not configured"}); return
+        payload, gmail, err = self._ai_validate_token_and_credits(AI_IMAGE_COST)
+        if payload is None: return
+
+        body        = self._body()
+        prompt      = body.get("prompt", "").strip()
+        image_b64   = body.get("image_base64")
+
+        if not prompt:
+            self._json(400, {"ok": False, "error": "prompt is required"}); return
+
+        parts = []
+        if image_b64:
+            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+            parts.append({"text": f"Based on this reference image, generate: {prompt}. High quality architectural visualization."})
+        else:
+            parts.append({"text": f"Generate an architectural image: {prompt}. High quality, professional architectural visualization."})
+
+        gemini_body = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+        }
+
+        try:
+            url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
+            req  = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
+            with _urllib_req.urlopen(req, timeout=60) as r:
+                resp_data = json.loads(r.read())
+
+            # Extract image from response
+            img_b64 = None
+            for part in resp_data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                if "inline_data" in part:
+                    img_b64 = part["inline_data"]["data"]
+                    break
+
+            if not img_b64:
+                # Fallback: use chat model to describe, return description
+                self._json(500, {"ok": False, "error": "Image generation model returned no image."}); return
+
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"Image generation error: {str(e)}"}); return
+
+        credits_after = self._ai_deduct_credits(gmail, AI_IMAGE_COST, "image", "Image Gen: "+prompt[:60])
+        self._json(200, {"ok": True, "image_base64": img_b64, "credits_after": credits_after})
+
+    def _ai_get_credits(self):
+        """POST /api/ai/credits â Get current credit balance"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 10)", (gmail,))
+        row = conn.execute("SELECT credits, total_purchased, total_used FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        conn.commit(); conn.close()
+        self._json(200, {
+            "ok": True,
+            "credits":         row['credits']         if row else 10,
+            "total_purchased": row['total_purchased']  if row else 0,
+            "total_used":      row['total_used']        if row else 0,
+        })
+
+    def _ai_transactions(self):
+        """POST /api/ai/transactions â Get recent credit transactions"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        rows  = conn.execute(
+            "SELECT type, amount, balance_after, description, created_at FROM ai_transactions WHERE gmail=? ORDER BY created_at DESC LIMIT 30",
+            (gmail,)
+        ).fetchall()
+        conn.close()
+        self._json(200, {"ok": True, "transactions": [dict(r) for r in rows]})
+
+    def _ai_topup_request(self):
+        """POST /api/ai/topup â Submit a top-up request with receipt"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body  = self._body()
+        credits_req = int(body.get("credits", 0))
+        receipt_b64 = body.get("receipt_base64", "")
+        note        = body.get("note", "")
+        if credits_req <= 0:
+            self._json(400, {"ok": False, "error": "Invalid credits amount"}); return
+        conn = get_db()
+        rid  = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO ai_topup_requests (id, gmail, credits_requested, receipt_base64, note, status) VALUES (?,?,?,?,?,?)",
+            (rid, gmail, credits_req, receipt_b64[:500000], note, 'pending')
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "request_id": rid, "message": "Top-up request submitted. Credits will be added after review."})
+
+    def _admin_add_credits(self):
+        """POST /api/admin/ai/credits/add â Admin: manually add credits to user"""
+        if not self._require_admin(): return
+        body   = self._body()
+        gmail  = body.get("gmail", "").strip().lower()
+        amount = int(body.get("amount", 0))
+        note   = body.get("note", "Admin credit grant")
+  2     if not gmail or amount <= 0:
+            self._json(400, {"ok": False, "error": "gmail and amount required"}); return
+        conn = get_db()
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 0)", (gmail,))
+        conn.execute("UPDATE ai_wallets SET credits = credits + ?, total_purchased = total_purchased + ? WHERE gmail=?", (amount, amount, gmail))
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        balance = row['credits'] if row else amount
+        conn.execute(
+            "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+            (gmail, 'admin', amount, balance, note)
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
+
+
+if __name__ == "__main__":
+    init_db()
+    server = HTTPServer(("0.0.0.0", PORT), Handler)
+    print(f"[AbimconStudio V3] Server v3 running â http://0.0.0.0:{PORT}")
+    print(f"[AbimconStudio V3] Admin panel       â http://localhost:{PORT}")
+    print(f"[AbimconStudio V3] Admin password    â {ADMIN_PASS}")
+    print(f"[AbimconStudio V3] R2 configured     â {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[AbimconStudio V3] Stopped.")
