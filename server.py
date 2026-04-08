@@ -1,4 +1,3 @@
-# test
 #!/usr/bin/env python3
 """
 AbimconStudio V3 — License Management Server  v3
@@ -19,11 +18,25 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timezone, timedelta
 
+# ── Gemini AI (loaded from Railway env var — NEVER hardcoded) ──────────────────
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_CHAT_MODEL  = 'gemini-1.5-pro'
+GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation'
+AI_CHAT_COST  = 1    # credits per chat message
+AI_IMAGE_COST = 10   # credits per image generation
+
+try:
+    import urllib.request as _urllib_req
+    import urllib.error   as _urllib_err
+    _AI_HTTP_AVAILABLE = True
+except Exception:
+    _AI_HTTP_AVAILABLE = False
+
 # ── Input validation regexes ───────────────────────────────────────────────────
 _GMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 _KEY_RE   = re.compile(r'^ABIM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
-# ── In-memory rate limiter ─────────────h────────────────────────────────────────
+# ── In-memory rate limiter ─────────────────────────────────────────────────────
 _rl_lock   = threading.Lock()
 _rl_store  = {}   # ip -> {attempts, window_start, locked_until}
 _RL_MAX    = 5    # max attempts per window
@@ -182,6 +195,45 @@ def init_db():
             ip_addr    TEXT,
             hwid       TEXT,
             created_at TEXT
+        )
+    """)
+
+    # ── AI Wallets ────────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ai_wallets (
+            id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            gmail           TEXT UNIQUE NOT NULL,
+            credits         INTEGER NOT NULL DEFAULT 10,
+            total_purchased INTEGER NOT NULL DEFAULT 0,
+            total_used      INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+    """)
+
+    # ── AI Credit Transactions ────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ai_transactions (
+            id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            gmail         TEXT NOT NULL,
+            type          TEXT NOT NULL,
+            amount        INTEGER NOT NULL,
+            balance_after INTEGER NOT NULL,
+            description   TEXT,
+            created_at    TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+    """)
+
+    # ── AI Top-up Requests ────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ai_topup_requests (
+            id                TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+            gmail             TEXT NOT NULL,
+            credits_requested INTEGER NOT NULL,
+            receipt_base64    TEXT,
+            note              TEXT,
+            status            TEXT DEFAULT 'pending',
+            admin_note        TEXT,
+            created_at        TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
         )
     """)
 
@@ -494,7 +546,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/plan-features":        self._get_plan_features_public()
         elif path == "/api/models":               self._get_user_models()
         elif path == "/api/assets":               self._get_assets()   # ← AssetBrowser JS endpoint
-        else:
+  #     else:
             m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
             m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
             m_mod = re.match(r"^/api/admin/models/([^/]+)$",               path)
@@ -510,6 +562,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/validate":               self._validate_license()
         elif path == "/api/license-info":           self._license_info()
         elif path == "/api/deactivate-device":      self._deactivate_device()
+        elif path == "/api/ai/chat":                self._ai_chat()
+        elif path == "/api/ai/image":               self._ai_image()
+        elif path == "/api/ai/credits":             self._ai_get_credits()
+        elif path == "/api/ai/transactions":        self._ai_transactions()
+        elif path == "/api/ai/topup":               self._ai_topup_request()
+        elif path == "/api/admin/ai/credits/add":   self._admin_add_credits()
         elif path == "/api/download-model":         self._download_model()
         elif path == "/api/download":               self._download()        # ← AssetBrowser JS endpoint
         elif path == "/api/admin/licenses":         self._add_license()
@@ -662,7 +720,8 @@ class Handler(BaseHTTPRequestHandler):
             {"sub": gmail, "role": row["role"], "lid": row["id"], "plan": row["plan_type"]},
             expires_in=28800
         )
-        # ── Compute days remaining until expiry ─────────────────────────────────────────
+
+        # ── Compute days remaining until expiry ─────────────────────────────────
         expiry_str     = row["expiry_date"] if row["expiry_date"] else None
         days_remaining = None
         if expiry_str:
@@ -691,21 +750,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def _license_info(self):
         """POST /api/license-info  { gmail, license_key, hwid }
-        Returns full license info including expiry_date for Settings Hub."""
+        Returns full license info including expiry_date for Settings Hub display.
+        Does NOT register HWID or update last_login — read-only lookup."""
         body  = self._body()
         gmail = body.get("gmail", "").strip().lower()
         key   = body.get("license_key", "").strip()
         hwid  = body.get("hwid", "").strip()
+
         if not gmail or not key:
             self._json(400, {"ok": False, "error": "Missing credentials"}); return
+
         conn = get_db()
         row  = conn.execute(
             "SELECT * FROM licenses WHERE gmail=? AND license_key=? AND active=1",
             (gmail, key)
         ).fetchone()
+
         if not row:
             conn.close()
             self._json(401, {"ok": False, "error": "Invalid credentials"}); return
+
+        # Compute days remaining
         expiry_str     = row["expiry_date"] if row["expiry_date"] else None
         days_remaining = None
         if expiry_str:
@@ -715,11 +780,17 @@ class Handler(BaseHTTPRequestHandler):
                 days_remaining = (exp - _date_cls.today()).days
             except Exception:
                 pass
-        hw_rows  = conn.execute(
-            "SELECT hwid FROM registered_hwids WHERE license_id=?", (row["id"],)
+
+        # Count registered devices
+        hw_rows      = conn.execute(
+            "SELECT hwid, last_seen, ip_addr FROM registered_hwids WHERE license_id=?",
+            (row["id"],)
         ).fetchall()
-        hwid_list = [r["hwid"] for r in hw_rows]
+        hwid_list    = [r["hwid"] for r in hw_rows]
+        current_hwid = hwid
+
         conn.close()
+
         self._json(200, {
             "ok":            True,
             "gmail":         row["gmail"],
@@ -730,7 +801,7 @@ class Handler(BaseHTTPRequestHandler):
             "expiry_date":   expiry_str,
             "days_remaining": days_remaining,
             "max_devices":   row["max_devices"] if row["max_devices"] else 2,
-            "current_hwid":  hwid,
+            "current_hwid":  current_hwid,
             "hwid_list":     hwid_list,
         })
 
@@ -766,7 +837,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"ok": False, "error": "Device not found for this license."})
 
     # ══════════════════════════════════════════════════════════════════════════
-    # ── Secure Download Endpoint ──────────────────────────────────────────────
+    # ── Secure Download Endpoint ──────────────────────────════════════════════
     # ══════════════════════════════════════════════════════════════════════════
 
     def _download_model(self):
@@ -849,7 +920,7 @@ class Handler(BaseHTTPRequestHandler):
         model_name = model_id  # fallback display name
 
         if "/" in model_id or model_id.lower().endswith(".skp"):
-            # ── Direct R2 path (abimcon-assets dynamic scan) ──────────────
+            # ── Direct R2 path (abimcon-assets dynamic scan('──────────────
             r2_key    = model_id
             r2_bucket = R2_ASSETS_BUCKET
             base_filename = model_id.split("/")[-1]
@@ -1081,15 +1152,17 @@ class Handler(BaseHTTPRequestHandler):
         elif "days" in body:
             try:
                 days = int(body["days"])
-            except (ValueError, TypeError):
+            except (TypeError, ValueError):
+                conn.close()
                 self._json(400, {"error": "days must be an integer"}); return
             base = _date_cls.today()
             if row["expiry_date"]:
                 try:
                     existing = _date_cls.fromisoformat(row["expiry_date"])
                     if existing > base:
-                        base = existing
-                except Exception: pass
+                        base = existing        # extend from current expiry, not today
+                except Exception:
+                    pass
             new_expiry = (base + _td(days=days)).isoformat()
         else:
             conn.close()
@@ -1572,13 +1645,219 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True})
 
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # ── AI Suite (Banana Pro) ─────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _ai_validate_token_and_credits(self, cost):
+        """Validate session token + check/deduct credits. Returns (payload, gmail, error)."""
+        payload = self._require_auth()
+        if not payload:
+            return None, None, None   # _require_auth already sent response
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        # Ensure wallet exists
+        conn.execute(
+            "INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 10)",
+            (gmail,)
+        )
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        credits = row['credits'] if row else 0
+        if credits < cost:
+            conn.close()
+            self._json(402, {"ok": False, "error": f"Insufficient credits. You need {cost} but have {credits}.", "code": "INSUFFICIENT_CREDITS"})
+            return None, None, True
+        conn.close()
+        return payload, gmail, False
+
+    def _ai_deduct_credits(self, gmail, cost, tx_type, description):
+        conn = get_db()
+        conn.execute("UPDATE ai_wallets SET credits = credits - ?, total_used = total_used + ? WHERE gmail=?", (cost, cost, gmail))
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        balance = row['credits'] if row else 0
+        conn.execute(
+            "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+            (gmail, tx_type, -cost, balance, description)
+        )
+        conn.commit(); conn.close()
+        return balance
+
+    def _ai_chat(self):
+        """POST /api/ai/chat — proxy to Gemini 1.5 Pro (1 credit)"""
+        if not GEMINI_API_KEY:
+            self._json(503, {"ok": False, "error": "AI service not configured"}); return
+        payload, gmail, err = self._ai_validate_token_and_credits(AI_CHAT_COST)
+        if payload is None: return
+
+        body         = self._body()
+        user_message = body.get("message", "").strip()
+        context_json = body.get("context_json")
+        image_b64    = body.get("image_base64")
+
+        if not user_message:
+            self._json(400, {"ok": False, "error": "message is required"}); return
+
+        # Build Gemini request
+        system_prompt = (
+            "You are Banana Pro, an expert BIM & BOQ assistant for AbimconStudio SketchUp extension. "
+            "You specialize in construction cost analysis, bill of quantities, materials, and architectural advice. "
+            "When given BOQ JSON data, analyze quantities, costs, materials, and give professional construction advice. "
+            "Be concise, practical, and use professional construction terminology. "
+            "Format responses with clear sections. Use Lao/Thai context when relevant."
+        )
+
+        parts = []
+        if context_json:
+            parts.append({"text": f"BOQ Context Data:\n{json.dumps(context_json, ensure_ascii=False, indent=2)}\n\n"})
+        if image_b64:
+            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+        parts.append({"text": user_message})
+
+        gemini_body = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        }
+
+        try:
+            url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}"
+            req  = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
+            with _urllib_req.urlopen(req, timeout=55) as r:
+                resp_data = json.loads(r.read())
+            ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"Gemini API error: {str(e)}"}); return
+
+        credits_after = self._ai_deduct_credits(gmail, AI_CHAT_COST, "chat", "Chat: "+user_message[:60])
+        self._json(200, {"ok": True, "response": ai_text, "credits_after": credits_after})
+
+    def _ai_image(self):
+        """POST /api/ai/image — Gemini image generation (10 credits)"""
+        if not GEMINI_API_KEY:
+            self._json(503, {"ok": False, "error": "AI service not configured"}); return
+        payload, gmail, err = self._ai_validate_token_and_credits(AI_IMAGE_COST)
+        if payload is None: return
+
+        body        = self._body()
+        prompt      = body.get("prompt", "").strip()
+        image_b64   = body.get("image_base64")
+
+        if not prompt:
+            self._json(400, {"ok": False, "error": "prompt is required"}); return
+
+        parts = []
+        if image_b64:
+            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+            parts.append({"text": f"Based on this reference image, generate: {prompt}. High quality architectural visualization."})
+        else:
+            parts.append({"text": f"Generate an architectural image: {prompt}. High quality, professional architectural visualization."})
+
+        gemini_body = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+        }
+
+        try:
+            url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
+            req  = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
+            with _urllib_req.urlopen(req, timeout=60) as r:
+                resp_data = json.loads(r.read())
+
+            # Extract image from response
+            img_b64 = None
+            for part in resp_data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                if "inline_data" in part:
+                    img_b64 = part["inline_data"]["data"]
+                    break
+
+            if not img_b64:
+                # Fallback: use chat model to describe, return description
+                self._json(500, {"ok": False, "error": "Image generation model returned no image."}); return
+
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"Image generation error: {str(e)}"}); return
+
+        credits_after = self._ai_deduct_credits(gmail, AI_IMAGE_COST, "image", "Image Gen: "+prompt[:60])
+        self._json(200, {"ok": True, "image_base64": img_b64, "credits_after": credits_after})
+
+    def _ai_get_credits(self):
+        """POST /api/ai/credits — Get current credit balance"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 10)", (gmail,))
+        row = conn.execute("SELECT credits, total_purchased, total_used FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        conn.commit(); conn.close()
+        self._json(200, {
+            "ok": True,
+            "credits":         row['credits']         if row else 10,
+            "total_purchased": row['total_purchased']  if row else 0,
+            "total_used":      row['total_used']        if row else 0,
+        })
+
+    def _ai_transactions(self):
+        """POST /api/ai/transactions — Get recent credit transactions"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        conn  = get_db()
+        rows  = conn.execute(
+            "SELECT type, amount, balance_after, description, created_at FROM ai_transactions WHERE gmail=? ORDER BY created_at DESC LIMIT 30",
+            (gmail,)
+        ).fetchall()
+        conn.close()
+        self._json(200, {"ok": True, "transactions": [dict(r) for r in rows]})
+
+    def _ai_topup_request(self):
+        """POST /api/ai/topup — Submit a top-up request with receipt"""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body  = self._body()
+        credits_req = int(body.get("credits", 0))
+        receipt_b64 = body.get("receipt_base64", "")
+        note        = body.get("note", "")
+        if credits_req <= 0:
+            self._json(400, {"ok": False, "error": "Invalid credits amount"}); return
+        conn = get_db()
+        rid  = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO ai_topup_requests (id, gmail, credits_requested, receipt_base64, note, status) VALUES (?,?,?,?,?,?)",
+            (rid, gmail, credits_req, receipt_b64[:500000], note, 'pending')
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "request_id": rid, "message": "Top-up request submitted. Credits will be added after review."})
+
+    def _admin_add_credits(self):
+        """POST /api/admin/ai/credits/add — Admin: manually add credits to user"""
+        if not self._require_admin(): return
+        body   = self._body()
+        gmail  = body.get("gmail", "").strip().lower()
+        amount = int(body.get("amount", 0))
+        note   = body.get("note", "Admin credit grant")
+        if not gmail or amount <= 0:
+            self._json(400, {"ok": False, "error": "gmail and amount required"}); return
+        conn = get_db()
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 0)", (gmail,))
+        conn.execute("UPDATE ai_wallets SET credits = credits + ?, total_purchased = total_purchased + ? WHERE gmail=?", (amount, amount, gmail))
+        row = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()
+        balance = row['credits'] if row else amount
+        conn.execute(
+            "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+            (gmail, 'admin', amount, balance, note)
+        )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
+
+
 if __name__ == "__main__":
     init_db()
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[AbimconStudio V3] Server v3 running → http://0.0.0.0:{PORT}")
-    print(f"[AbimconStudio V3] Admin panel       → http://localhost:{PORT}")
+    print(f"[AbimconStudio V3] Admin panel        → http://localhost:{PORT}")
     print(f"[AbimconStudio V3] Admin password    → {ADMIN_PASS}")
-    print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
+    print(f"[AbimconStudio V3] R2 configured     → {'YES' if all([R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY]) else 'NO (fet R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME)'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
