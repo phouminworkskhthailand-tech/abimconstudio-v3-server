@@ -1725,7 +1725,7 @@ class Handler(BaseHTTPRequestHandler):
             with _urllib_req.urlopen(req, timeout=55) as r:
                 resp_data = json.loads(r.read())
             ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
-                except Exception as e:
+        except Exception as e:
             self._json(500, {"ok": False, "error": f"Gemini API error: {str(e)}"}); return
 
         credits_after = self._ai_deduct_credits(gmail, AI_CHAT_COST, "chat", "Chat: "+user_message[:60])
