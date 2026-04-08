@@ -567,7 +567,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/ai/credits":             self._ai_get_credits()
         elif path == "/api/ai/transactions":        self._ai_transactions()
         elif path == "/api/ai/topup":               self._ai_topup_request()
-        elif path == "/api/admin/ai/credits/add":   self._admin_add_credits()
+        elif path == "/api/admin/ai/credits/add":     self._admin_add_credits()
+        elif path == "/api/admin/ai/topups/approve": self._admin_approve_topup()
         elif path == "/api/download-model":         self._download_model()
         elif path == "/api/download":               self._download()        # â AssetBrowser JS endpoint
         elif path == "/api/admin/licenses":         self._add_license()
@@ -1847,6 +1848,58 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
             (gmail, 'admin', amount, balance, note)
         )
+        conn.commit(); conn.close()
+        self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
+
+
+    def _admin_ai_wallets(self):
+        """GET /api/admin/ai/wallets — Admin: list all user AI wallets"""
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT w.gmail, w.credits, w.total_purchased, w.total_used, w.created_at,
+                      l.name
+               FROM ai_wallets w
+               LEFT JOIN licenses l ON l.gmail = w.gmail
+               ORDER BY w.credits DESC"""
+        ).fetchall()
+        conn.close()
+        self._json(200, {"ok": True, "wallets": [dict(r) for r in rows]})
+
+    def _admin_ai_topups(self):
+        """GET /api/admin/ai/topups — Admin: list topup requests"""
+        if not self._require_admin(): return
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT id, gmail, credits_requested, note, status, created_at
+               FROM ai_topup_requests ORDER BY created_at DESC LIMIT 100"""
+        ).fetchall()
+        conn.close()
+        self._json(200, {"ok": True, "topups": [dict(r) for r in rows]})
+
+    def _admin_approve_topup(self):
+        """POST /api/admin/ai/topups/approve — Admin: approve a topup"""
+        if not self._require_admin(): return
+        body   = self._body()
+        req_id = body.get("id", "").strip()
+        note   = body.get("note", "Approved topup")
+        if not req_id:
+            self._json(400, {"ok": False, "error": "id required"}); return
+        conn = get_db()
+        row = conn.execute(
+            "SELECT gmail, credits_requested, status FROM ai_topup_requests WHERE id=?", (req_id,)
+        ).fetchone()
+        if not row:
+            conn.close(); self._json(404, {"ok": False, "error": "Request not found"}); return
+        if row['status'] != 'pending':
+            conn.close(); self._json(400, {"ok": False, "error": "Request already " + row['status']}); return
+        gmail  = row['gmail']
+        amount = row['credits_requested']
+        conn.execute("INSERT OR IGNORE INTO ai_wallets (gmail, credits) VALUES (?, 0)", (gmail,))
+        conn.execute("UPDATE ai_wallets SET credits = credits + ?, total_purchased = total_purchased + ? WHERE gmail=?", (amount, amount, gmail))
+        balance = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()['credits']
+        conn.execute("INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)", (gmail, 'topup', amount, balance, note))
+        conn.execute("UPDATE ai_topup_requests SET status='approved' WHERE id=?", (req_id,))
         conn.commit(); conn.close()
         self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
 
