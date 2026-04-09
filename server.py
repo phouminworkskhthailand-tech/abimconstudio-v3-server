@@ -1774,7 +1774,7 @@ class Handler(BaseHTTPRequestHandler):
             "Never truncate \u2014 complete every section fully before finishing. "
             "Use Lao/Thai construction context and terminology where relevant."
         )
-                if material_context:
+        if material_context:
             system_prompt += f"\n\n{material_context}"
 
         contents = []
