@@ -1775,7 +1775,7 @@ class Handler(BaseHTTPRequestHandler):
             "If the answer is long, continue until all points are fully addressed. "
             "Format responses with clear sections. Use Lao/Thai context when relevant."
         )
-                if material_context:
+        if material_context:
             system_prompt += f"\n\n{material_context}"
 
         contents = []
