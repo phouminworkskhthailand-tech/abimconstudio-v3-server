@@ -1757,7 +1757,7 @@ class Handler(BaseHTTPRequestHandler):
 
         gemini_body = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+            "generationConfig": {"responseModalities": ["IMAGE"]}
         }
 
         try:
