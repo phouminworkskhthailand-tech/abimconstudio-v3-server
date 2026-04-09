@@ -1762,20 +1762,19 @@ class Handler(BaseHTTPRequestHandler):
         material_context = self._fetch_material_context(user_message)
 
         system_prompt = (
-            "You are BIM Assistant, an expert BIM & BOQ assistant for AbimconStudio SketchUp extension. "
-            "You specialize in construction cost analysis, bill of quantities (BOQ), materials estimation, "
-            "architectural advice, and structural planning for residential and commercial projects. "
-            "When given BOQ JSON data: (1) systematically analyze every line item — quantities, unit rates, and totals; "
-            "(2) identify cost-saving opportunities, over-estimates, or missing items; "
-            "(3) provide step-by-step breakdowns of labour, materials, and overhead; "
-            "(4) compare costs against market benchmarks; "
-            "(5) give professional procurement and sequencing recommendations. "
-            "Always respond with detailed, structured answers using clear section headings. "
-            "Never truncate your analysis — complete every section fully before finishing. "
-            "If the answer is long, continue until all points are fully addressed. "
-            "Format responses with clear sections. Use Lao/Thai context when relevant."
+            "You are a professional BIM & BOQ Expert built into AbimconStudio SketchUp extension. "
+            "Always provide comprehensive, step-by-step reasoning for construction calculations. "
+            "Do not summarize unless explicitly asked. "
+            "When given BOQ JSON data: systematically analyze every line item \u2014 quantities, unit rates, and totals; "
+            "identify cost-saving opportunities, over-estimates, or missing items; "
+            "provide detailed step-by-step breakdowns of labour, materials, and overhead; "
+            "compare costs against regional market benchmarks; "
+            "give professional procurement, scheduling, and sequencing recommendations. "
+            "Always use clear section headings and numbered steps. "
+            "Never truncate \u2014 complete every section fully before finishing. "
+            "Use Lao/Thai construction context and terminology where relevant."
         )
-        if material_context:
+                if material_context:
             system_prompt += f"\n\n{material_context}"
 
         contents = []
@@ -1853,24 +1852,39 @@ class Handler(BaseHTTPRequestHandler):
             f"Image Gen x{image_count}: " + prompt[:50]
         )
 
+        # ── Build expanded prompt (secret sauce) ────────────────────────────────────
         style_desc = style if style else "Realistic"
-        ar_hint    = f"Aspect ratio: {aspect_ratio}." if aspect_ratio != "1:1" else ""
-        res_hint   = f"Resolution target: {resolution}." if resolution != "2048x2048" else ""
+        ar_hint    = f"aspect ratio {aspect_ratio}" if aspect_ratio != "1:1" else ""
+        lighting   = body.get("lighting", "cinematic lighting")
+
+        # Resolution quality tier
+        if resolution == "4096x4096":
+            quality_tags = "8K ultra resolution, hyperrealistic, extreme detail, ray-traced global illumination, masterpiece"
+        elif resolution == "2048x2048":
+            quality_tags = "4K resolution, photorealistic, highly detailed textures, ray-tracing, cinematic lighting, sharp focus, masterpiece"
+        else:
+            quality_tags = "high resolution, photorealistic, detailed, cinematic lighting, sharp focus"
+
+        # Negative prompt — appended to every request
+        negative_prompt = "blurry, distorted geometry, low resolution, messy, low quality, watermark, text overlay, overexposed, underexposed, cartoonish, sketch, noise, artifacts"
 
         has_ref = bool(image_b64 or inspo_b64)
         if has_ref:
             full_prompt = (
-                f"You are an architectural visualization AI. "
-                f"Using the attached reference image as inspiration/geometry, "
-                f"generate a high-quality professional architectural image. "
-                f"Style: {style_desc}. {ar_hint} {res_hint} Request: {prompt}. "
-                f"Make it look professional, with realistic lighting, materials, and surroundings."
+                f"High-end architectural visualization of {prompt}, {style_desc} style, "
+                f"{lighting}, {quality_tags}"
+                + (f", {ar_hint}" if ar_hint else "")
+                + f". KEEP GEOMETRY 100% IDENTICAL to the attached SketchUp viewport — "
+                f"apply only the lighting, materials, landscaping and atmosphere from the inspiration image. "
+                f"Negative: {negative_prompt}."
             )
         else:
             full_prompt = (
-                f"Generate a high-quality professional architectural image. "
-                f"Style: {style_desc}. {ar_hint} {res_hint} Subject: {prompt}. "
-                f"Photorealistic, detailed, with realistic lighting and materials."
+                f"High-end architectural visualization of {prompt}, {style_desc} style, "
+                f"{lighting}, {quality_tags}"
+                + (f", {ar_hint}" if ar_hint else "")
+                + f". Professional architectural render, ultra-sharp, magazine quality. "
+                f"Negative: {negative_prompt}."
             )
 
         images = []
