@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta
 # ââ Gemini AI (loaded from Railway env var â NEVER hardcoded) ââââââââââââââââââ
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_CHAT_MODEL  = 'gemini-2.5-flash'
-GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image'
+GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp'
 AI_CHAT_COST  = 1    # credits per chat message
 AI_IMAGE_COST = 10   # credits per image generation
 
@@ -1757,7 +1757,7 @@ class Handler(BaseHTTPRequestHandler):
 
         gemini_body = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"responseModalities": ["IMAGE"]}
+            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
         }
 
         try:
@@ -1774,8 +1774,10 @@ class Handler(BaseHTTPRequestHandler):
                     break
 
             if not img_b64:
-                # Fallback: use chat model to describe, return description
-                self._json(500, {"ok": False, "error": "Image generation model returned no image."}); return
+                # Debug: log what model returned
+                cands=resp_data.get("candidates",[])
+                dbg=f"finish={cands[0].get('finishReason','?') if cands else 'none'} parts={[list(p.keys()) for p in cands[0].get('content',{}).get('parts',[])]} pf={resp_data.get('promptFeedback','')}"[:200]
+                self._json(500, {"ok": False, "error": dbg}); return
 
         except Exception as e:
             self._json(500, {"ok": False, "error": f"Image generation error: {str(e)}"}); return
