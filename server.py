@@ -31,89 +31,105 @@ RESOLUTION_COSTS = {          # credits per image by resolution
 }
 AI_EXTRACT_COST = 1  # credits per section analysis (9 sections = 9 credits total)
 
-# ── Section Analysis Prompts (one per render profile section) ─────────────────
+# ── Section Analysis Prompts (7 active sections — no camera, no watermark) ──────
+# IMPORTANT: All prompts use plain prose — NO markdown, NO headers, NO bullets.
+# Materials section uses the SketchUp base viewport (geometry reference).
+# All others use the inspiration image (style/mood reference).
 SECTION_ANALYSIS_PROMPTS = {
-    'camera': (
-        "You are a Professional Architectural Photographer and Cinematographer. "
-        "Analyze this architectural image and describe the camera setup in ONE concise paragraph: "
-        "perspective type (Perspective / Parallel Projection / Two-Point Perspective), "
-        "estimated lens focal length (e.g. 24mm wide-angle), camera height above ground, "
-        "and view angle. Output ONLY one paragraph, no headers, no bullets. "
-        "Example format: 'Low-angle garden view, 24mm wide-angle lens, shot at 1.2m camera height, "
-        "emphasizing two-point perspective with straight vertical lines.'"
-    ),
-    'watermark': (
-        "You are an Image Restoration Specialist. "
-        "Identify ALL watermarks, logos, social media handles, website URLs, and text overlays "
-        "in this image that must be removed to create a clean render reference. "
-        "For each element: describe it precisely (text content, color, style) and state its exact location. "
-        "Then provide step-by-step Cleaning Instructions to restore each area seamlessly. "
-        "Format: ### **Elements to Remove:** [numbered list with Description + Location] "
-        "### **Cleaning Instructions:** [numbered steps]"
-    ),
     'materials': (
-        "You are an Architectural Specification Writer. "
-        "Analyze the building materials and finishes visible in this architectural image. "
-        "Provide detailed professional specifications structured as: "
-        "### 1. Wall Textures (primary finish, accent panels, decorative screening/battens), "
-        "### 2. Window and Door Frames (frame material, powder-coat color, glazing type), "
-        "### 3. Roof Textures (roofing material, finish, ridge capping, fascia/soffits), "
-        "### 4. Lighting Fixtures (recessed lights, wall washers, architectural accent fixtures). "
-        "Use specific product names, material grades, and professional architectural terminology."
+        "You are a Senior Architectural Specification Writer analyzing a SketchUp 3D model viewport. "
+        "This is the STRUCTURAL BASE image — focus ONLY on the building geometry: wall surfaces, window frames, "
+        "door frames, roof planes, columns, overhangs, fascias, and any decorative architectural elements. "
+        "Write a comprehensive detailed specification in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "Cover in full detail: (1) Primary wall finish — material type, texture, color, finish grade, typical product spec. "
+        "(2) Accent panels or feature walls — contrasting material, color, dimensions. "
+        "(3) Window and door frames — aluminium or timber, powder-coat color, glazing type (clear/low-e/tinted), sill detail. "
+        "(4) Roof plane — roofing material, surface texture, overhang soffit finish, fascia material and color. "
+        "(5) Columns and structural elements — material, finish, dimension character. "
+        "(6) Built-in lighting positions — any recessed slots, cove lighting positions, wall-washer channels visible. "
+        "Be as specific and technical as possible. Use product-grade language an architect or renderer would use."
     ),
     'landscape': (
-        "You are a Landscape Architect and Urban Planner. "
-        "Analyze the surrounding environment in this architectural image, focusing exclusively on the external setting. "
-        "Structure your analysis as: "
-        "### **1. Urban Context & Streetscape** (road type, sidewalk, street furniture, infrastructure), "
-        "### **2. Surrounding Built Environment** (neighboring buildings, density, architectural styles), "
-        "### **3. Vegetation Style & Softscape Design** (plant palette, layering, planting scheme), "
-        "### **4. Topographical Vibes & Natural Features** (terrain, climate indicators, horizon), "
-        "### **5. Atmospheric Lighting Context** (outdoor lighting strategy, time of day ambiance)."
+        "You are a Landscape Architect and Urban Planner analyzing the surrounding environment in this architectural inspiration image. "
+        "Write a comprehensive analysis in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "Cover in full detail: (1) Urban context and streetscape — road type, lane count, sidewalk width and material, curbing, street furniture, "
+        "utilities, fencing, boundary walls visible in the scene. "
+        "(2) Surrounding built environment — neighboring building types, heights, density, architectural style character, setbacks, colors. "
+        "(3) Vegetation style and softscape zoning — overall landscape design character, tree canopy coverage, planting zones, screening hedges, lawn areas. "
+        "(4) Terrain and natural features — ground slope, elevation changes, soil character, climate indicators from vegetation. "
+        "(5) Outdoor lighting strategy — street lights, garden uplighting, perimeter lighting, time-of-day ambiance. "
+        "Write enough detail for a visualization artist to fully recreate this environment from scratch."
     ),
     'sky': (
-        "Analyze the sky and atmospheric lighting conditions in this architectural image for use as a photorealistic render reference. "
-        "Describe with technical precision: "
-        "**Sky Gradient and Color Palette** (specific named colors at zenith, mid-sky, and horizon), "
-        "**Sun Position and Solar Angle** (time of day, compass direction, shadow length and softness), "
-        "**Lighting Tone and Quality** (color temperature in Kelvin, hard vs soft, specular highlights, "
-        "ambient sky-fill quality). Provide enough detail for a Gemini image model to recreate this exact atmosphere."
+        "You are a Lighting Director and VFX Supervisor analyzing the sky and atmospheric lighting in this architectural inspiration image. "
+        "Write a comprehensive technical description in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "Cover in full detail: (1) Sky gradient — describe the exact color transition from zenith to horizon using specific color names "
+        "(e.g. deep cerulean blue at zenith, transitioning through powder blue mid-sky, to soft pale peach at horizon). "
+        "(2) Sun position — estimated time of day, compass direction of sun relative to building facade, solar elevation angle, "
+        "hard or soft shadow edges, shadow direction on ground and walls. "
+        "(3) Color temperature — estimate in Kelvin (e.g. 3200K warm golden hour, 6500K cool overcast), "
+        "describe specular highlights on building surfaces, ambient sky fill quality on shadowed faces. "
+        "(4) Cloud character — cloud type, coverage percentage, cloud light/shadow transitions. "
+        "(5) Atmospheric haze or depth — describe any aerial perspective, fog layers, dust, humidity effects. "
+        "Be precise enough that a Gemini image model can recreate this exact atmospheric condition."
     ),
     'plants': (
-        "You are a Botanist and Landscape Designer. "
-        "Identify and analyze all visible plant species in this architectural environment image. "
-        "For each plant group provide: Scientific name (italic), common name, physical description, "
-        "and its specific role/location in the composition. "
-        "Structure as: "
-        "### **Plant Species Identification** (numbered list of all species), "
-        "### **Density and Distribution** (Low density zones, Medium density zones, High density zones)."
+        "You are a Botanist and Landscape Designer analyzing the planting design in this architectural inspiration image. "
+        "Write a comprehensive identification and design analysis in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "For each distinct plant group or species visible: state the common name and likely scientific name, "
+        "describe the physical appearance (leaf shape, size, color, texture, growth habit, height range), "
+        "and describe its exact position and role in the composition (foreground accent, background screening, "
+        "entry statement, ground cover, container planting, vertical element). "
+        "Then describe the overall planting design philosophy — tropical/subtropical character, density strategy, "
+        "layering from ground cover to mid-shrub to canopy, seasonal behavior, maintenance character. "
+        "Cover every visible plant type. Be thorough — a visualization artist should be able to source and place "
+        "every plant species from this description alone."
     ),
     'softscape': (
-        "You are a Landscape Architect specializing in high-end residential garden design. "
-        "Analyze the garden and softscape composition in this architectural image. "
-        "Structure your analysis as: "
-        "### **Composition and Spatial Layout** (public/private zones, tiers, focal points, boundaries), "
-        "### **Ground Cover and Texture** (softscape/hardscape transitions, mulch, lawn, organic layers), "
-        "### **Lighting and Atmosphere** (precision uplighting, spotlighting on specimens, ambient strategy)."
+        "You are a Landscape Architect specializing in high-end residential and commercial garden design. "
+        "Analyze the garden layout, softscape composition, and outdoor spatial design in this architectural inspiration image. "
+        "Write a comprehensive analysis in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "Cover in full detail: (1) Spatial layout and zoning — describe how outdoor spaces are divided (entry forecourt, "
+        "feature garden beds, lawn zone, patio/terrace), transitions between zones, screening elements, focal points. "
+        "(2) Planter and raised bed design — materials (concrete, corten steel, rendered masonry), dimensions, capping details, "
+        "soil depth, drainage grilles visible. "
+        "(3) Ground cover and texture transitions — how softscape blends into hardscape, mulch type and color, "
+        "lawn grass species character, organic ground layers. "
+        "(4) Garden lighting design — uplighting on feature plants, step lighting, path edge lighting, ambient glow strategy. "
+        "(5) Water features or sculptural elements if visible. "
+        "Write with enough specificity that a landscape contractor could cost and build this garden from the description."
     ),
     'pavement': (
-        "Analyze all pavement and ground surface materials visible in this architectural image. "
-        "For each distinct surface type describe: material name and specification, color and finish texture, "
-        "pattern or joint layout, and its exact location in the scene. "
-        "Cover ALL surfaces visible: road asphalt, concrete curbing, sidewalk/path pavers, driveway material, "
-        "organic ground cover/mulch, decorative boulders, recessed lighting channels, boundary walls."
+        "You are a Materials Specialist and Civil Designer analyzing all ground surfaces in this architectural inspiration image. "
+        "Write a comprehensive surface specification in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "For every distinct surface area visible describe: the exact material and product specification "
+        "(e.g. 600x600mm honed concrete pavers, charcoal grey, 40mm thick, butt-jointed with 3mm grouted joint), "
+        "the surface color, texture, and finish (matte/polished/brushed/acid-washed), "
+        "the laying pattern (stack bond, running bond, herringbone, random), "
+        "and the precise location and zone in the scene. "
+        "Cover ALL surfaces: main driveway or forecourt, entry path, pedestrian sidewalk, road edge, "
+        "planter base surrounds, step treads and risers, kerbing, any gravel or decorative aggregate areas, "
+        "recessed drainage channels, boundary wall base. "
+        "Note any lighting integration into paving (recessed in-ground lights, step nosing lights). "
+        "Be detailed enough for a quantity surveyor to price the finishes."
     ),
     'mood': (
-        "You are a Color Gradist specializing in architectural visualization and cinematic color grading. "
-        "Analyze the mood, tone, and color palette of this architectural image for use as a grade reference. "
-        "Structure as: "
-        "### **Mood:** [one evocative sentence], "
-        "### **Tone:** [tonal balance description — upper/lower half treatment, contrast style, shadow quality], "
-        "### **Color Palette:** [give the palette a cinematic name, then list 5-6 specific named colors with their atmospheric role], "
-        "### **Overall Atmospheric Summary:** [2-3 sentences capturing the complete visual character]."
+        "You are a Senior Colorist and Cinematographer specializing in architectural visualization and high-end CGI. "
+        "Analyze the complete mood, color grading, and visual atmosphere of this architectural inspiration image. "
+        "Write a comprehensive color grade specification in flowing professional prose (NO markdown, NO headers, NO bullet points, NO asterisks). "
+        "Cover in full detail: (1) Overall emotional mood — describe the feeling and atmosphere in one or two evocative sentences. "
+        "(2) Tonal balance — describe the luminosity distribution: how highlights, midtones, and shadows are treated, "
+        "contrast ratio character (low-key/high-key/balanced), vignetting, depth-of-field blur if present. "
+        "(3) Color palette — give the palette a cinematic name, then describe 5-6 specific named colors visible in the scene "
+        "with their role (sky fill color, shadow tone color, highlight warmth, vegetation green character, "
+        "surface material tone, ambient reflected light color). "
+        "(4) Lighting quality — describe the quality of light (golden warm, cool blue, neutral daylight), "
+        "color temperature in Kelvin, how it affects each material type in the scene. "
+        "(5) Post-processing character — describe any bloom, chromatic aberration, film grain, lens flare, "
+        "color shift in shadows vs highlights (split toning). "
+        "Write with enough technical precision that a Gemini image model can perfectly recreate this color grade."
     ),
 }
-
 # ── Supabase (optional — for RAG material context) ──────────────────────────────────────────────
 SUPABASE_URL      = os.environ.get('SUPABASE_URL', '')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
@@ -1983,9 +1999,21 @@ class Handler(BaseHTTPRequestHandler):
                     parts.append({"inlineData": {"mimeType": mime, "data": ref}})
                 parts.append({"text": full_prompt})
 
+                # Map UI aspect ratio values to Gemini API format
+                _ar_map = {
+                    "1:1": "1:1", "square": "1:1",
+                    "4:3": "4:3", "standard": "4:3",
+                    "3:4": "3:4", "portrait": "3:4",
+                    "16:9": "16:9", "wide": "16:9",
+                    "9:16": "9:16", "story": "9:16",
+                }
+                gemini_ar = _ar_map.get(str(aspect_ratio).lower(), "1:1")
                 gemini_body = {
                     "contents": [{"role": "user", "parts": parts}],
-                    "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+                    "generationConfig": {
+                        "responseModalities": ["TEXT", "IMAGE"],
+                        "imageGenerationConfig": {"aspectRatio": gemini_ar}
+                    }
                 }
 
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
@@ -2085,7 +2113,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"inlineData": {"mimeType": mime_str, "data": img_b64}},
                     {"text": prompt_text}
                 ]}],
-                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024}
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 2048}
             }
 
             try:
