@@ -2439,6 +2439,23 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── Feed ────────────────────────────────────────────────────────────────────
 
+    def _social_notifications_get(self):
+        """GET /api/social/notifications — unread notifications for caller."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail = payload.get('sub', '')
+        try:
+            notifs = _supa('notifications', params={
+                'user_id': f'eq.{gmail}',
+                'read':    'eq.false',
+                'order':   'created_at.desc',
+                'limit':   '50',
+            })
+            self._json(200, {"ok": True, "notifications": notifs})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
     def _social_feed_get(self):
         """GET /api/social/feed — paginated community posts."""
         payload = self._require_auth()
