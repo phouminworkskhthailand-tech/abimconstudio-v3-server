@@ -710,6 +710,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/social/feed":          self._social_feed_get()
         elif path == "/api/social/notifications": self._social_notifications_get()
         elif path.startswith("/api/social/comments"):  self._social_comments_get()
+        elif path.startswith("/api/social/gen-history"):   self._social_gen_history()
+        elif path.startswith("/api/community/profile"):    self._community_profile()
         else:
             m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
             m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
@@ -746,6 +748,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/social/auto-tag":           self._social_auto_tag()
         elif path == "/api/social/comments/add":       self._social_comment_add()
         elif path == "/api/social/ai-mention":         self._social_ai_mention()
+        elif path == "/api/social/share-generated":    self._social_share_generated()
+        elif path == "/api/social/report-post":        self._social_report_post()
         elif path == "/api/admin/ai/credits/add":     self._admin_add_credits()
         elif path == "/api/admin/ai/topups/approve": self._admin_approve_topup()
         elif path == "/api/download-model":         self._download_model()
@@ -2941,6 +2945,147 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "response": ai_txt, "comment": ai_comment})
         except Exception as e:
             self._json(500, {"ok": False, "error": f"AI response failed: {str(e)}"})
+
+
+    # ============================================================================
+    # ── CONTENT MODERATION (Gemini 2.5 Flash) ──────────────────────────────────
+    # ============================================================================
+
+    def _moderate_content(self, text_to_check):
+        """Call Gemini 2.5 Flash to check if content is safe."""
+        api_key = os.environ.get('GEMINI_API_KEY', '')
+        if not api_key:
+            return True
+        try:
+            import urllib.request as _ureq
+            prompt = (
+                "You are a content moderation AI. Review the following text and determine if it violates any of these policies:\n"
+                "- Harassment or bullying\n- Hate speech or discrimination\n"
+                "- Explicit sexual content\n- Promotion of violence or illegal activities\n- Spam\n\n"
+                f"Text to review:\n\"{text_to_check}\"\n\n"
+                'Respond with ONLY JSON: {"is_safe": true} or {"is_safe": false, "reason": "brief explanation"}'
+            )
+            gb = {"contents": [{"parts": [{"text": prompt}]}]}
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+            req = _ureq.Request(url, headers={'Content-Type': 'application/json'}, method='POST', data=json.dumps(gb).encode())
+            with _ureq.urlopen(req, timeout=10) as r:
+                result = json.loads(r.read())
+                tc = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                mod = json.loads(tc)
+                return mod.get('is_safe', True)
+        except Exception:
+            return True
+
+    # ============================================================================
+    # ── SHARE GENERATED IMAGE ──────────────────────────────────────────────────
+    # ============================================================================
+
+    def _social_share_generated(self):
+        """POST /api/social/share-generated — share AI-generated image to community."""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body = self._body()
+        image_url = body.get('image_url', '')
+        prompt = body.get('prompt', '')
+        if not image_url:
+            self._json(400, {"ok": False, "error": "image_url required"})
+            return
+        try:
+            if not self._moderate_content(prompt):
+                self._json(403, {"ok": False, "error": "Content violates community guidelines"})
+                return
+            _ensure_profile(gmail)
+            post = _supa('community_posts', method='POST',
+                         body={'author_id': gmail, 'content': prompt, 'image_url': image_url, 'is_approved': True},
+                         use_service_key=True)
+            post_id = post[0]['id'] if isinstance(post, list) and post else None
+            _supa('user_generations', method='POST',
+                  body={'user_id': gmail, 'image_url': image_url, 'prompt': prompt, 'resolution': '1024x1024'},
+                  use_service_key=True)
+            self._json(200, {"ok": True, "post_id": post_id})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ============================================================================
+    # ── GENERATION HISTORY ─────────────────────────────────────────────────────
+    # ============================================================================
+
+    def _social_gen_history(self):
+        """GET /api/social/gen-history — fetch user generation history."""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        try:
+            gens = _supa('user_generations',
+                         params={'user_id': f'eq.{gmail}', 'order': 'created_at.desc', 'limit': '50'})
+            if not isinstance(gens, list): gens = []
+            self._json(200, {"ok": True, "generations": gens})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ============================================================================
+    # ── REPORT POST ────────────────────────────────────────────────────────────
+    # ============================================================================
+
+    def _social_report_post(self):
+        """POST /api/social/report-post — report a community post."""
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body = self._body()
+        post_id = body.get('post_id', '')
+        reason = body.get('reason', '')
+        if not post_id:
+            self._json(400, {"ok": False, "error": "post_id required"})
+            return
+        try:
+            _supa('post_reports', method='POST',
+                  body={'post_id': post_id, 'reporter_id': gmail, 'reason': reason},
+                  use_service_key=True)
+            reports = _supa('post_reports', params={'post_id': f'eq.{post_id}'})
+            count = len(reports) if isinstance(reports, list) else 0
+            hidden = False
+            if count >= 5:
+                _supa('community_posts', method='PATCH',
+                      params={'id': f'eq.{post_id}'},
+                      body={'is_approved': False}, use_service_key=True)
+                hidden = True
+            self._json(200, {"ok": True, "hidden": hidden})
+        except Exception:
+            self._json(200, {"ok": True, "hidden": False})
+
+    # ============================================================================
+    # ── COMMUNITY PROFILE ──────────────────────────────────────────────────────
+    # ============================================================================
+
+    def _community_profile(self):
+        """GET /api/community/profile?user_id=X — fetch user profile + posts."""
+        payload = self._require_auth()
+        if not payload: return
+        qs = parse_qs(urlparse(self.path).query)
+        user_id = qs.get('user_id', [''])[0]
+        if not user_id:
+            self._json(400, {"ok": False, "error": "user_id required"})
+            return
+        try:
+            profiles = _supa('profiles', params={'gmail': f'eq.{user_id}'})
+            if not profiles or not isinstance(profiles, list) or len(profiles) == 0:
+                self._json(404, {"ok": False, "error": "Profile not found"})
+                return
+            p = profiles[0]
+            posts = _supa('community_posts',
+                          params={'author_id': f'eq.{user_id}', 'is_approved': 'eq.true',
+                                  'order': 'created_at.desc', 'limit': '20'})
+            if not isinstance(posts, list): posts = []
+            self._json(200, {"ok": True, "profile": {
+                'user_id': p.get('gmail'), 'display_name': p.get('display_name', 'User'),
+                'avatar_url': p.get('avatar_url', ''), 'user_tier': p.get('user_tier', 'free'),
+                'bio': p.get('bio', '')
+            }, "posts": posts})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
 
 if __name__ == "__main__":
     init_db()
