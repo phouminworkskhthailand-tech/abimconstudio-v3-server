@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta
 # ââ Gemini AI (loaded from Railway env var â NEVER hardcoded) ââââââââââââââââââ
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_CHAT_MODEL  = 'gemini-2.5-flash'
-GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp'
+GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image'  # native image gen model
 AI_CHAT_COST  = 1    # credits per chat message
 AI_IMAGE_COST = 10   # credits per image generation
 
