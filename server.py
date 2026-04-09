@@ -21,7 +21,14 @@ from datetime import datetime, timezone, timedelta
 # ââ Gemini AI (loaded from Railway env var â NEVER hardcoded) ââââââââââââââââââ
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_CHAT_MODEL  = 'gemini-2.5-flash'
-GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image'  # native image gen model
+GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image'  # fallback / 1K model
+# Resolution-specific image models + imageConfig.imageSize
+# imageConfig inside generationConfig is the CORRECT key (NOT imageGenerationConfig)
+GEMINI_IMAGE_TIERS = {
+    '1024x1024': {'model': 'gemini-2.5-flash-image',        'imageSize': '1K'},
+    '2048x2048': {'model': 'gemini-3.1-flash-image-preview', 'imageSize': '2K'},
+    '4096x4096': {'model': 'gemini-3-pro-image-preview',     'imageSize': '4K'},
+}
 AI_CHAT_COST  = 1    # credits per chat message
 AI_IMAGE_COST = 10   # credits per image (legacy flat rate, kept for backward compat)
 RESOLUTION_COSTS = {          # credits per image by resolution
@@ -1999,46 +2006,67 @@ class Handler(BaseHTTPRequestHandler):
         api_ar = _ar_map.get(str(aspect_ratio).lower(), "1:1")
 
         # ── Generate image_count images ───────────────────────────────────────────
-        # ── Generate image_count images (Gemini Flash native image generation) ─────
+        # ── Resolve model + imageSize from resolution tier ────────────────────────
+        tier       = GEMINI_IMAGE_TIERS.get(resolution, GEMINI_IMAGE_TIERS['1024x1024'])
+        img_model  = tier['model']
+        img_size   = tier['imageSize']
+
+        # Map aspect ratio string to Gemini imageConfig value
+        _ar_map = {
+            '1:1': '1:1', 'square': '1:1',
+            '4:3': '4:3', 'standard': '4:3',
+            '3:4': '3:4', 'portrait': '3:4',
+            '16:9': '16:9', 'wide': '16:9',
+            '9:16': '9:16', 'story': '9:16',
+        }
+        api_ar = _ar_map.get(str(aspect_ratio).lower(), '1:1')
+
+        # ── Generate image_count images ───────────────────────────────────────────
         images = []
         last_error = None
 
         for i in range(image_count):
             try:
                 gemini_parts = []
-                # Attach reference image when available (SketchUp viewport takes priority)
                 ref = image_b64 or inspo_b64
                 if ref:
-                    ref_mime_key = "image_mime" if image_b64 else "inspiration_mime"
-                    mime = "image/jpeg" if body.get(ref_mime_key, "jpeg") == "jpeg" else "image/png"
-                    gemini_parts.append({"inlineData": {"mimeType": mime, "data": ref}})
-                gemini_parts.append({"text": full_prompt})
+                    ref_mime_key = 'image_mime' if image_b64 else 'inspiration_mime'
+                    mime = 'image/jpeg' if body.get(ref_mime_key, 'jpeg') == 'jpeg' else 'image/png'
+                    gemini_parts.append({'inlineData': {'mimeType': mime, 'data': ref}})
+                gemini_parts.append({'text': full_prompt})
 
-                # IMPORTANT: generationConfig only accepts responseModalities for image models.
-                # imageGenerationConfig is NOT a valid key here — it causes HTTP 400.
+                # imageConfig.imageSize = true resolution tier (1K/2K/4K)
+                # imageConfig.aspectRatio = proper aspect ratio support
+                # IMPORTANT: use imageConfig, NOT imageGenerationConfig (causes HTTP 400)
                 gemini_body = {
-                    "contents": [{"role": "user", "parts": gemini_parts}],
-                    "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+                    'contents': [{'role': 'user', 'parts': gemini_parts}],
+                    'generationConfig': {
+                        'responseModalities': ['TEXT', 'IMAGE'],
+                        'imageConfig': {
+                            'imageSize':   img_size,
+                            'aspectRatio': api_ar
+                        }
+                    }
                 }
-                url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-                       f"{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}")
+                url = (f'https://generativelanguage.googleapis.com/v1beta/models/'
+                       f'{img_model}:generateContent?key={GEMINI_API_KEY}')
                 req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
-                                          headers={"Content-Type": "application/json"})
+                                          headers={'Content-Type': 'application/json'})
                 with _urllib_req.urlopen(req, timeout=90) as r:
                     resp_data = json.loads(r.read())
 
                 img_b64 = None
-                candidates = resp_data.get("candidates", [])
+                candidates = resp_data.get('candidates', [])
                 if candidates:
-                    for part in candidates[0].get("content", {}).get("parts", []):
-                        if "inlineData" in part:
-                            img_b64 = part["inlineData"]["data"]
+                    for part in candidates[0].get('content', {}).get('parts', []):
+                        if 'inlineData' in part:
+                            img_b64 = part['inlineData']['data']
                             break
 
                 if not img_b64:
-                    finish    = candidates[0].get("finishReason", "?") if candidates else "no_candidates"
-                    pts_debug = [list(p.keys()) for p in candidates[0].get("content", {}).get("parts", [])] if candidates else []
-                    raise ValueError(f"No image in response #{i+1}. finishReason={finish}, parts={pts_debug}")
+                    finish    = candidates[0].get('finishReason', '?') if candidates else 'no_candidates'
+                    pts_debug = [list(p.keys()) for p in candidates[0].get('content', {}).get('parts', [])] if candidates else []
+                    raise ValueError(f'No image in response #{i+1}. finishReason={finish}, parts={pts_debug}')
 
                 images.append(img_b64)
 
