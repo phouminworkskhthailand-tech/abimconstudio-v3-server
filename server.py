@@ -709,6 +709,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/social/config":        self._social_config()
         elif path == "/api/social/feed":          self._social_feed_get()
         elif path == "/api/social/notifications": self._social_notifications_get()
+        elif path.startswith("/api/social/comments"):  self._social_comments_get()
         else:
             m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
             m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
@@ -741,6 +742,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/social/notifications/read":  self._social_notif_read()
         elif path == "/api/social/media/save":          self._social_media_save()
         elif path == "/api/social/media/list":          self._social_media_list()
+        elif path == "/api/social/upload-image":      self._social_upload_image()
+        elif path == "/api/social/auto-tag":           self._social_auto_tag()
+        elif path == "/api/social/comments/add":       self._social_comment_add()
+        elif path == "/api/social/ai-mention":         self._social_ai_mention()
         elif path == "/api/admin/ai/credits/add":     self._admin_add_credits()
         elif path == "/api/admin/ai/topups/approve": self._admin_approve_topup()
         elif path == "/api/download-model":         self._download_model()
@@ -2794,6 +2799,148 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"ok": False, "error": str(e)})
 
+
+
+    # ── Comments GET ─────────────────────────────────────────────────
+    def _social_comments_get(self):
+        payload = self._require_auth()
+        if not payload: return
+        qs = parse_qs(urlparse(self.path).query)
+        post_id = qs.get('post_id', [''])[0]
+        if not post_id:
+            self._json(400, {"ok": False, "error": "post_id required"})
+            return
+        try:
+            comments = _supa('post_comments', params={
+                'post_id': f'eq.{post_id}',
+                'select': 'id,post_id,author_id,content,parent_id,is_ai_response,created_at,profiles(display_name,avatar_url)',
+                'order': 'created_at.asc',
+            })
+            self._json(200, {"ok": True, "comments": comments})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Comment Add ──────────────────────────────────────────────────
+    def _social_comment_add(self):
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body = self._body()
+        post_id   = body.get('post_id', '')
+        txt       = body.get('content', '').strip()
+        parent_id = body.get('parent_id', None)
+        if not post_id or not txt:
+            self._json(400, {"ok": False, "error": "post_id and content required"})
+            return
+        try:
+            _ensure_profile(gmail)
+            cb = {'post_id': post_id, 'author_id': gmail, 'content': txt, 'is_ai_response': False}
+            if parent_id: cb['parent_id'] = parent_id
+            row = _supa('post_comments', method='POST', body=cb, use_service_key=True)
+            comment = row[0] if isinstance(row, list) and row else row
+            try:
+                post = _supa('community_posts', params={'id': f'eq.{post_id}', 'select': 'comments_count,author_id'})
+                if post:
+                    cc = (post[0].get('comments_count') or 0) + 1
+                    _supa('community_posts', method='PATCH', params={'id': f'eq.{post_id}'}, body={'comments_count': cc}, use_service_key=True)
+                    pa = post[0].get('author_id', '')
+                    if pa and pa != gmail:
+                        _supa('notifications', method='POST', body={'user_id': pa, 'type': 'comment', 'content': f'{gmail} commented on your post', 'related_id': post_id, 'read': False}, use_service_key=True)
+            except: pass
+            needs_ai = '@Assistant' in txt or '@assistant' in txt
+            self._json(200, {"ok": True, "comment": comment, "needs_ai_response": needs_ai})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Upload Image to Supabase Storage ─────────────────────────────
+    def _social_upload_image(self):
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('sub', '')
+        body = self._body()
+        b64 = body.get('base64', '').strip()
+        mime = body.get('mime', 'image/jpeg')
+        fname = body.get('filename', 'image.jpg')
+        if not b64:
+            self._json(400, {"ok": False, "error": "base64 data required"})
+            return
+        try:
+            import urllib.request as _ureq
+            img_bytes = base64.b64decode(b64)
+            ts = int(time.time() * 1000)
+            safe = fname.replace(' ', '_')
+            spath = f"community-images/{gmail}/{ts}_{safe}"
+            url = SUPABASE_URL.rstrip('/') + '/storage/v1/object/' + spath
+            req = _ureq.Request(url, headers={'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}', 'Content-Type': mime}, method='PUT', data=img_bytes)
+            with _ureq.urlopen(req, timeout=15) as r: r.read()
+            pub = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{spath}"
+            self._json(200, {"ok": True, "url": pub})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"Upload failed: {str(e)}"})
+
+    # ── Auto-Tag via Gemini ──────────────────────────────────────────
+    def _social_auto_tag(self):
+        payload = self._require_auth()
+        if not payload: return
+        body = self._body()
+        ctx = body.get('boq_context', {})
+        if not ctx:
+            self._json(400, {"ok": False, "error": "boq_context required"})
+            return
+        try:
+            import urllib.request as _ureq
+            ctx_str = json.dumps(ctx, indent=2)[:2000]
+            prompt = f"Given this BIM/BOQ context, generate 3-5 relevant hashtags. Return ONLY a JSON array like [\"#Concrete\",\"#ModernVilla\"]. Context:\n{ctx_str}"
+            gkey = os.environ.get('GEMINI_API_KEY', '')
+            if not gkey:
+                self._json(200, {"ok": True, "tags": ["#BIM", "#Architecture"]})
+                return
+            gb = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.7, "maxOutputTokens": 150}}
+            gurl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gkey}"
+            req = _ureq.Request(gurl, headers={'Content-Type': 'application/json'}, method='POST', data=json.dumps(gb).encode())
+            with _ureq.urlopen(req, timeout=20) as r:
+                result = json.loads(r.read())
+            try:
+                tags = json.loads(result['candidates'][0]['content']['parts'][0]['text'].strip())
+                if not isinstance(tags, list): tags = ["#BIM", "#Architecture"]
+            except: tags = ["#BIM", "#Architecture", "#DigitalConstruction"]
+            self._json(200, {"ok": True, "tags": tags})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"AI tag failed: {str(e)}"})
+
+    # ── AI Mention Response ──────────────────────────────────────────
+    def _social_ai_mention(self):
+        payload = self._require_auth()
+        if not payload: return
+        body = self._body()
+        post_id = body.get('post_id', '')
+        comment_id = body.get('comment_id', '')
+        txt = body.get('content', '').strip()
+        if not post_id or not comment_id or not txt:
+            self._json(400, {"ok": False, "error": "post_id, comment_id, content required"})
+            return
+        try:
+            import urllib.request as _ureq
+            post_data = _supa('community_posts', params={'id': f'eq.{post_id}', 'select': 'content'})
+            pc = post_data[0].get('content', '') if post_data else ''
+            prompt = f"You are a BIM/Architecture AI assistant. A user mentioned you in a comment.\nOriginal post:\n{pc}\n\nComment:\n{txt}\n\nProvide a helpful, technical response (2-3 sentences max)."
+            gkey = os.environ.get('GEMINI_API_KEY', '')
+            if not gkey:
+                self._json(500, {"ok": False, "error": "GEMINI_API_KEY not set"})
+                return
+            gb = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.8, "maxOutputTokens": 200}}
+            gurl = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gkey}"
+            req = _ureq.Request(gurl, headers={'Content-Type': 'application/json'}, method='POST', data=json.dumps(gb).encode())
+            with _ureq.urlopen(req, timeout=20) as r:
+                result = json.loads(r.read())
+            try: ai_txt = result['candidates'][0]['content']['parts'][0]['text'].strip()
+            except: ai_txt = "I had trouble generating a response. Please try again."
+            ai_cb = {'post_id': post_id, 'author_id': 'ai-assistant', 'content': ai_txt, 'is_ai_response': True, 'parent_id': comment_id}
+            row = _supa('post_comments', method='POST', body=ai_cb, use_service_key=True)
+            ai_comment = row[0] if isinstance(row, list) and row else row
+            self._json(200, {"ok": True, "response": ai_txt, "comment": ai_comment})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": f"AI response failed: {str(e)}"})
 
 if __name__ == "__main__":
     init_db()
