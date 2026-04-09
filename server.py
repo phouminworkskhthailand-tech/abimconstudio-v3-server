@@ -29,7 +29,90 @@ RESOLUTION_COSTS = {          # credits per image by resolution
     '2048x2048': 25,
     '4096x4096': 50,
 }
-AI_EXTRACT_COST = 1  # credits per inspiration-image param extraction
+AI_EXTRACT_COST = 1  # credits per section analysis (9 sections = 9 credits total)
+
+# ── Section Analysis Prompts (one per render profile section) ─────────────────
+SECTION_ANALYSIS_PROMPTS = {
+    'camera': (
+        "You are a Professional Architectural Photographer and Cinematographer. "
+        "Analyze this architectural image and describe the camera setup in ONE concise paragraph: "
+        "perspective type (Perspective / Parallel Projection / Two-Point Perspective), "
+        "estimated lens focal length (e.g. 24mm wide-angle), camera height above ground, "
+        "and view angle. Output ONLY one paragraph, no headers, no bullets. "
+        "Example format: 'Low-angle garden view, 24mm wide-angle lens, shot at 1.2m camera height, "
+        "emphasizing two-point perspective with straight vertical lines.'"
+    ),
+    'watermark': (
+        "You are an Image Restoration Specialist. "
+        "Identify ALL watermarks, logos, social media handles, website URLs, and text overlays "
+        "in this image that must be removed to create a clean render reference. "
+        "For each element: describe it precisely (text content, color, style) and state its exact location. "
+        "Then provide step-by-step Cleaning Instructions to restore each area seamlessly. "
+        "Format: ### **Elements to Remove:** [numbered list with Description + Location] "
+        "### **Cleaning Instructions:** [numbered steps]"
+    ),
+    'materials': (
+        "You are an Architectural Specification Writer. "
+        "Analyze the building materials and finishes visible in this architectural image. "
+        "Provide detailed professional specifications structured as: "
+        "### 1. Wall Textures (primary finish, accent panels, decorative screening/battens), "
+        "### 2. Window and Door Frames (frame material, powder-coat color, glazing type), "
+        "### 3. Roof Textures (roofing material, finish, ridge capping, fascia/soffits), "
+        "### 4. Lighting Fixtures (recessed lights, wall washers, architectural accent fixtures). "
+        "Use specific product names, material grades, and professional architectural terminology."
+    ),
+    'landscape': (
+        "You are a Landscape Architect and Urban Planner. "
+        "Analyze the surrounding environment in this architectural image, focusing exclusively on the external setting. "
+        "Structure your analysis as: "
+        "### **1. Urban Context & Streetscape** (road type, sidewalk, street furniture, infrastructure), "
+        "### **2. Surrounding Built Environment** (neighboring buildings, density, architectural styles), "
+        "### **3. Vegetation Style & Softscape Design** (plant palette, layering, planting scheme), "
+        "### **4. Topographical Vibes & Natural Features** (terrain, climate indicators, horizon), "
+        "### **5. Atmospheric Lighting Context** (outdoor lighting strategy, time of day ambiance)."
+    ),
+    'sky': (
+        "Analyze the sky and atmospheric lighting conditions in this architectural image for use as a photorealistic render reference. "
+        "Describe with technical precision: "
+        "**Sky Gradient and Color Palette** (specific named colors at zenith, mid-sky, and horizon), "
+        "**Sun Position and Solar Angle** (time of day, compass direction, shadow length and softness), "
+        "**Lighting Tone and Quality** (color temperature in Kelvin, hard vs soft, specular highlights, "
+        "ambient sky-fill quality). Provide enough detail for a Gemini image model to recreate this exact atmosphere."
+    ),
+    'plants': (
+        "You are a Botanist and Landscape Designer. "
+        "Identify and analyze all visible plant species in this architectural environment image. "
+        "For each plant group provide: Scientific name (italic), common name, physical description, "
+        "and its specific role/location in the composition. "
+        "Structure as: "
+        "### **Plant Species Identification** (numbered list of all species), "
+        "### **Density and Distribution** (Low density zones, Medium density zones, High density zones)."
+    ),
+    'softscape': (
+        "You are a Landscape Architect specializing in high-end residential garden design. "
+        "Analyze the garden and softscape composition in this architectural image. "
+        "Structure your analysis as: "
+        "### **Composition and Spatial Layout** (public/private zones, tiers, focal points, boundaries), "
+        "### **Ground Cover and Texture** (softscape/hardscape transitions, mulch, lawn, organic layers), "
+        "### **Lighting and Atmosphere** (precision uplighting, spotlighting on specimens, ambient strategy)."
+    ),
+    'pavement': (
+        "Analyze all pavement and ground surface materials visible in this architectural image. "
+        "For each distinct surface type describe: material name and specification, color and finish texture, "
+        "pattern or joint layout, and its exact location in the scene. "
+        "Cover ALL surfaces visible: road asphalt, concrete curbing, sidewalk/path pavers, driveway material, "
+        "organic ground cover/mulch, decorative boulders, recessed lighting channels, boundary walls."
+    ),
+    'mood': (
+        "You are a Color Gradist specializing in architectural visualization and cinematic color grading. "
+        "Analyze the mood, tone, and color palette of this architectural image for use as a grade reference. "
+        "Structure as: "
+        "### **Mood:** [one evocative sentence], "
+        "### **Tone:** [tonal balance description — upper/lower half treatment, contrast style, shadow quality], "
+        "### **Color Palette:** [give the palette a cinematic name, then list 5-6 specific named colors with their atmospheric role], "
+        "### **Overall Atmospheric Summary:** [2-3 sentences capturing the complete visual character]."
+    ),
+}
 
 # ── Supabase (optional — for RAG material context) ──────────────────────────────────────────────
 SUPABASE_URL      = os.environ.get('SUPABASE_URL', '')
@@ -1971,6 +2054,68 @@ class Handler(BaseHTTPRequestHandler):
         body      = self._body()
         inspo_b64 = body.get("inspiration_base64", "").strip()
         inspo_mime= body.get("inspiration_mime", "jpeg")
+        section_type = body.get("type", "quick")   # "quick" = legacy 4-param; section key = new detailed
+
+        # │─ New: section-specific deep analysis │────────────────────
+        if section_type in SECTION_ANALYSIS_PROMPTS:
+            # For 'camera' section, prefer the base viewport; otherwise use inspiration image
+            if section_type == "camera":
+                img_b64  = body.get("base_base64",  "").strip() or inspo_b64
+                img_mime = body.get("base_mime",    "jpeg")
+            else:
+                img_b64  = inspo_b64
+                img_mime = inspo_mime
+
+            if not img_b64:
+                self._json(400, {"ok": False, "error": "No image provided for section analysis"}); return
+
+            payload, gmail, err = self._ai_validate_token_and_credits(AI_EXTRACT_COST)
+            if payload is None: return
+
+            credits_after = self._ai_deduct_credits(
+                gmail, AI_EXTRACT_COST, f"analyze_{section_type}",
+                f"Section analysis: {section_type}"
+            )
+
+            mime_str    = "image/jpeg" if img_mime in ("jpeg", "jpg") else "image/png"
+            prompt_text = SECTION_ANALYSIS_PROMPTS[section_type]
+
+            gemini_body = {
+                "contents": [{"role": "user", "parts": [
+                    {"inlineData": {"mimeType": mime_str, "data": img_b64}},
+                    {"text": prompt_text}
+                ]}],
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024}
+            }
+
+            try:
+                url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                       f"{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}")
+                req = _urlib_req.Request(url, data=json.dumps(gemini_body).encode(),
+                                          headers={"Content-Type": "application/json"})
+                with _urlib_req.urlopen(req, timeout=60) as r:
+                    resp_data = json.loads(r.read())
+                result_text = resp_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except Exception as e:
+                # Full refund on failure
+                try:
+                    conn = get_db()
+                    conn.execute(
+                        "UPDATE ai_wallets SET credits = credits + ?, total_used = total_used - ? WHERE gmail=?",
+                        (AI_EXTRACT_COST, AI_EXTRACT_COST, gmail)
+                    )
+                    conn.commit(); conn.close()
+                except Exception:
+                    pass
+                self._json(500, {"ok": False, "error": f"Analysis failed: {e}",
+                                  "type": section_type}); return
+
+            self._json(200, {
+                "ok":           True,
+                "type":         section_type,
+                "result":       result_text,
+                "credits_after": credits_after,
+            }); return
 
         if not inspo_b64:
             self._json(400, {"ok": False, "error": "inspiration_base64 is required"}); return
