@@ -2091,9 +2091,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                        f"{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}")
-                req = _urlib_req.Request(url, data=json.dumps(gemini_body).encode(),
+                req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
                                           headers={"Content-Type": "application/json"})
-                with _urlib_req.urlopen(req, timeout=60) as r:
+                with _urllib_req.urlopen(req, timeout=60) as r:
                     resp_data = json.loads(r.read())
                 result_text = resp_data["candidates"][0]["content"]["parts"][0]["text"].strip()
             except Exception as e:
