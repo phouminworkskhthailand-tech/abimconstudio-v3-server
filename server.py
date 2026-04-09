@@ -23,7 +23,13 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_CHAT_MODEL  = 'gemini-2.5-flash'
 GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image'  # native image gen model
 AI_CHAT_COST  = 1    # credits per chat message
-AI_IMAGE_COST = 10   # credits per image (multiplied by image_count)
+AI_IMAGE_COST = 10   # credits per image (legacy flat rate, kept for backward compat)
+RESOLUTION_COSTS = {          # credits per image by resolution
+    '1024x1024': 10,
+    '2048x2048': 25,
+    '4096x4096': 50,
+}
+AI_EXTRACT_COST = 1  # credits per inspiration-image param extraction
 
 # ── Supabase (optional — for RAG material context) ──────────────────────────────────────────────
 SUPABASE_URL      = os.environ.get('SUPABASE_URL', '')
@@ -570,6 +576,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/deactivate-device":      self._deactivate_device()
         elif path == "/api/ai/chat":                self._ai_chat()
         elif path == "/api/ai/image":               self._ai_image()
+        elif path == "/api/ai/extract-params":      self._ai_extract_params()
         elif path == "/api/ai/credits":             self._ai_get_credits()
         elif path == "/api/ai/transactions":        self._ai_transactions()
         elif path == "/api/ai/topup":               self._ai_topup_request()
@@ -1756,12 +1763,19 @@ class Handler(BaseHTTPRequestHandler):
 
         system_prompt = (
             "You are BIM Assistant, an expert BIM & BOQ assistant for AbimconStudio SketchUp extension. "
-            "You specialize in construction cost analysis, bill of quantities, materials, and architectural advice. "
-            "When given BOQ JSON data, analyze quantities, costs, materials, and give professional construction advice. "
-            "Be concise, practical, and use professional construction terminology. "
+            "You specialize in construction cost analysis, bill of quantities (BOQ), materials estimation, "
+            "architectural advice, and structural planning for residential and commercial projects. "
+            "When given BOQ JSON data: (1) systematically analyze every line item — quantities, unit rates, and totals; "
+            "(2) identify cost-saving opportunities, over-estimates, or missing items; "
+            "(3) provide step-by-step breakdowns of labour, materials, and overhead; "
+            "(4) compare costs against market benchmarks; "
+            "(5) give professional procurement and sequencing recommendations. "
+            "Always respond with detailed, structured answers using clear section headings. "
+            "Never truncate your analysis — complete every section fully before finishing. "
+            "If the answer is long, continue until all points are fully addressed. "
             "Format responses with clear sections. Use Lao/Thai context when relevant."
         )
-        if material_context:
+                if material_context:
             system_prompt += f"\n\n{material_context}"
 
         contents = []
@@ -1783,7 +1797,7 @@ class Handler(BaseHTTPRequestHandler):
         gemini_body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048}
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096}
         }
 
         try:
@@ -1829,7 +1843,8 @@ class Handler(BaseHTTPRequestHandler):
         if not prompt:
             self._json(400, {"ok": False, "error": "prompt is required"}); return
 
-        total_cost = AI_IMAGE_COST * image_count
+        cost_per   = RESOLUTION_COSTS.get(resolution, 25)
+        total_cost = cost_per * image_count
         payload, gmail, err = self._ai_validate_token_and_credits(total_cost)
         if payload is None: return
 
@@ -1904,7 +1919,7 @@ class Handler(BaseHTTPRequestHandler):
         generated = len(images)
         failed    = image_count - generated
         if failed > 0:
-            refund_amt = AI_IMAGE_COST * failed
+            refund_amt = cost_per * failed
             try:
                 conn = get_db()
                 conn.execute(
@@ -1932,6 +1947,97 @@ class Handler(BaseHTTPRequestHandler):
             "image_base64": images[0],
             "count":        generated,
             "credits_after": credits_after,
+        })
+
+    def _ai_extract_params(self):
+        """POST /api/ai/extract-params — Analyse inspiration image → 4 render profile params (1 credit)"""
+        if not GEMINI_API_KEY:
+            self._json(503, {"ok": False, "error": "AI service not configured"}); return
+
+        body      = self._body()
+        inspo_b64 = body.get("inspiration_base64", "").strip()
+        inspo_mime= body.get("inspiration_mime", "jpeg")
+
+        if not inspo_b64:
+            self._json(400, {"ok": False, "error": "inspiration_base64 is required"}); return
+
+        payload, gmail, err = self._ai_validate_token_and_credits(AI_EXTRACT_COST)
+        if payload is None: return
+
+        credits_after = self._ai_deduct_credits(
+            gmail, AI_EXTRACT_COST, "extract_params",
+            "Render profile extraction from inspiration image"
+        )
+
+        mime_str = "image/jpeg" if inspo_mime == "jpeg" else "image/png"
+        analysis_prompt = (
+            "Analyse this architectural inspiration image and extract the following 4 render parameters. "
+            "Respond ONLY with a valid JSON object (no markdown, no extra text) with exactly these keys:\n"
+            "{\n"
+            '  \"landscape_context\": \"brief description of the landscape/site context (e.g. tropical garden, urban street, mountain hillside)\",\n'
+            '  \"sky_condition\": \"sky and lighting description (e.g. golden hour sunset, overcast midday, clear blue sky with scattered clouds)\",\n'
+            '  \"cars_props\": \"vehicles and street props present or ideal (e.g. modern SUVs parked, no vehicles, light traffic with motorcycles)\",\n'
+            '  \"mood_tone\": \"overall mood and colour tone (e.g. warm and inviting, cool and minimalist, dramatic and moody)\"\n'
+            "}\n"
+            "Base your answers strictly on what you can observe or reasonably infer from the image."
+        )
+
+        gemini_body = {
+            "contents": [{
+                "role": "user",
+                "parts": [
+                    {"inlineData": {"mimeType": mime_str, "data": inspo_b64}},
+                    {"text": analysis_prompt}
+                ]
+            }],
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 512}
+        }
+
+        try:
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}")
+            req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
+                                      headers={"Content-Type": "application/json"})
+            with _urllib_req.urlopen(req, timeout=60) as r:
+                resp_data = json.loads(r.read())
+
+            raw_text = resp_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+            # Strip markdown fences if Gemini wraps the JSON
+            if raw_text.startswith("```"):
+                raw_text = raw_text.split("```")[1]
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:]
+                raw_text = raw_text.strip()
+
+            params = json.loads(raw_text)
+            required = {"landscape_context", "sky_condition", "cars_props", "mood_tone"}
+            if not required.issubset(params.keys()):
+                raise ValueError(f"Missing keys in response: {required - set(params.keys())}")
+
+        except Exception as e:
+            # Full refund on failure
+            try:
+                conn = get_db()
+                conn.execute(
+                    "UPDATE ai_wallets SET credits = credits + ?, total_used = total_used - ? WHERE gmail=?",
+                    (AI_EXTRACT_COST, AI_EXTRACT_COST, gmail)
+                )
+                conn.execute(
+                    "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+                    (gmail, 'refund', AI_EXTRACT_COST,
+                     credits_after + AI_EXTRACT_COST,
+                     "Refund: param extraction failed")
+                )
+                conn.commit(); conn.close()
+            except Exception:
+                pass
+            self._json(500, {"ok": False, "error": f"Extraction failed: {e}"}); return
+
+        self._json(200, {
+            "ok":             True,
+            "params":         params,
+            "credits_after":  credits_after,
         })
 
     def _ai_get_credits(self):
