@@ -1033,8 +1033,9 @@ async function saveNewFeature() {
 }
 
 /* ── Utils ── */
-function showEl(id, msg)  { var e=document.getElementById(id); e.textContent=msg; e.style.display=''; }
-function flash(id, msg)   { var e=document.getElementById(id); e.textContent=msg; e.style.display=''; setTimeout(function(){ e.style.display='none'; },4000); }
+function showEl(id, msg)  { var e=document.getElementById(id); if(!e) return; e.textContent=msg; e.style.display=''; }
+function hideEl(id)       { var e=document.getElementById(id); if(e) e.style.display='none'; }
+function flash(id, msg)   { var e=document.getElementById(id); if(!e) return; e.textContent=msg; e.style.display=''; setTimeout(function(){ e.style.display='none'; },4000); }
 function esc(s)           { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 /* ── Model toggle active/hidden ── */
