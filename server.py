@@ -2412,6 +2412,315 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit(); conn.close()
         self._json(200, {"ok": True, "gmail": gmail, "credits_added": amount, "new_balance": balance})
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SOCIAL / COMMUNITY  handlers  (Supabase-backed)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _social_config(self):
+        """GET /api/social/config — return public Supabase config for browser-side client."""
+        self._json(200, {
+            "ok":       True,
+            "url":      SUPABASE_URL,
+            "anon_key": SUPABASE_ANON_KEY,
+        })
+
+    # ── Feed ────────────────────────────────────────────────────────────────────
+
+    def _social_feed_get(self):
+        """GET /api/social/feed — paginated community posts."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        from urllib.parse import urlparse, parse_qs
+        qs     = parse_qs(urlparse(self.path).query)
+        limit  = int(qs.get('limit',  ['20'])[0])
+        offset = int(qs.get('offset', ['0'])[0])
+        try:
+            posts = _supa('community_posts', params={
+                'select': 'id,author_id,content,image_url,likes_count,created_at,profiles(display_name,avatar_url)',
+                'order':  'created_at.desc',
+                'limit':  str(limit),
+                'offset': str(offset),
+            })
+            self._json(200, {"ok": True, "posts": posts})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    def _social_post_create(self):
+        """POST /api/social/feed/post — create a new community post."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail   = payload.get('sub', '')
+        body    = self._body()
+        content   = body.get('content', '').strip()
+        image_url = body.get('image_url', '')
+        org_id    = body.get('org_id', '')
+        if not content:
+            self._json(400, {"ok": False, "error": "content required"})
+            return
+        try:
+            row  = _supa('community_posts', method='POST',
+                         body={'author_id': gmail, 'org_id': org_id,
+                               'content': content, 'image_url': image_url},
+                         use_service_key=True)
+            post = row[0] if isinstance(row, list) and row else row
+            self._json(200, {"ok": True, "post": post})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    def _social_post_like(self):
+        """POST /api/social/feed/like — toggle like on a post."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail   = payload.get('sub', '')
+        body    = self._body()
+        post_id = body.get('post_id', '')
+        if not post_id:
+            self._json(400, {"ok": False, "error": "post_id required"})
+            return
+        try:
+            existing = _supa('post_likes',
+                             params={'post_id': f'eq.{post_id}', 'user_id': f'eq.{gmail}'})
+            if existing:
+                _supa('post_likes', method='DELETE',
+                      params={'post_id': f'eq.{post_id}', 'user_id': f'eq.{gmail}'},
+                      use_service_key=True)
+                liked = False
+            else:
+                _supa('post_likes', method='POST',
+                      body={'post_id': post_id, 'user_id': gmail},
+                      use_service_key=True)
+                liked = True
+            post  = _supa('community_posts',
+                          params={'id': f'eq.{post_id}', 'select': 'id,likes_count'})
+            count = post[0]['likes_count'] if post else 0
+            self._json(200, {"ok": True, "liked": liked, "likes_count": count})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Friends ─────────────────────────────────────────────────────────────────
+
+    def _social_friends_list(self):
+        """POST /api/social/friends — list sent + received friendship rows."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail = payload.get('sub', '')
+        try:
+            sent     = _supa('friendships',
+                             params={'requester_id': f'eq.{gmail}',
+                                     'select': 'id,addressee_id,status,created_at'})
+            received = _supa('friendships',
+                             params={'addressee_id': f'eq.{gmail}',
+                                     'select': 'id,requester_id,status,created_at'})
+            self._json(200, {"ok": True, "sent": sent, "received": received})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    def _social_friend_action(self):
+        """POST /api/social/friends/add — request / accept / reject / remove."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail  = payload.get('sub', '')
+        body   = self._body()
+        action = body.get('action', 'request')   # 'request'|'accept'|'reject'|'remove'
+        target = body.get('target_id', '')
+        if not target:
+            self._json(400, {"ok": False, "error": "target_id required"})
+            return
+        try:
+            if action == 'request':
+                _supa('friendships', method='POST',
+                      body={'requester_id': gmail, 'addressee_id': target, 'status': 'pending'},
+                      use_service_key=True,
+                      extra_headers={'Prefer': 'return=representation,resolution=ignore-duplicates'})
+                _supa('notifications', method='POST',
+                      body={'user_id': target, 'type': 'friend_request',
+                            'content': f'{gmail} sent you a friend request',
+                            'related_id': gmail, 'read': False},
+                      use_service_key=True)
+                self._json(200, {"ok": True, "action": "requested"})
+            elif action == 'accept':
+                _supa('friendships', method='PATCH',
+                      params={'requester_id': f'eq.{target}', 'addressee_id': f'eq.{gmail}'},
+                      body={'status': 'accepted'},
+                      use_service_key=True)
+                _supa('notifications', method='POST',
+                      body={'user_id': target, 'type': 'friend_accepted',
+                            'content': f'{gmail} accepted your friend request',
+                            'related_id': gmail, 'read': False},
+                      use_service_key=True)
+                self._json(200, {"ok": True, "action": "accepted"})
+            elif action in ('reject', 'remove'):
+                # Delete whichever direction the row exists
+                _supa('friendships', method='DELETE',
+                      params={'requester_id': f'eq.{gmail}', 'addressee_id': f'eq.{target}'},
+                      use_service_key=True)
+                _supa('friendships', method='DELETE',
+                      params={'requester_id': f'eq.{target}', 'addressee_id': f'eq.{gmail}'},
+                      use_service_key=True)
+                self._json(200, {"ok": True, "action": action})
+            else:
+                self._json(400, {"ok": False, "error": f"Unknown action: {action}"})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Chat ────────────────────────────────────────────────────────────────────
+
+    def _social_chat_rooms(self):
+        """POST /api/social/chat/rooms — chat rooms the caller belongs to."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail = payload.get('sub', '')
+        try:
+            memberships = _supa('chat_room_members', params={
+                'user_id': f'eq.{gmail}',
+                'select':  'room_id,chat_rooms(id,name,type,created_by,created_at)',
+            })
+            rooms = [m.get('chat_rooms') for m in memberships if m.get('chat_rooms')]
+            self._json(200, {"ok": True, "rooms": rooms})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    def _social_chat_send(self):
+        """POST /api/social/chat/send — send a message to a chat room."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail    = payload.get('sub', '')
+        body     = self._body()
+        room_id  = body.get('room_id', '')
+        content  = body.get('content', '').strip()
+        msg_type = body.get('message_type', 'text')
+        if not room_id or not content:
+            self._json(400, {"ok": False, "error": "room_id and content required"})
+            return
+        try:
+            membership = _supa('chat_room_members',
+                               params={'room_id': f'eq.{room_id}', 'user_id': f'eq.{gmail}'})
+            if not membership:
+                self._json(403, {"ok": False, "error": "Not a member of this room"})
+                return
+            row = _supa('messages', method='POST',
+                        body={'room_id': room_id, 'sender_id': gmail,
+                              'content': content, 'message_type': msg_type},
+                        use_service_key=True)
+            msg = row[0] if isinstance(row, list) and row else row
+            self._json(200, {"ok": True, "message": msg})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Org members ─────────────────────────────────────────────────────────────
+
+    def _social_org_members(self):
+        """POST /api/social/org/members — list all members in the caller's org."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail  = payload.get('sub', '')
+        body   = self._body()
+        org_id = body.get('org_id', '')
+        try:
+            if not org_id:
+                me     = _supa('profiles', params={'id': f'eq.{gmail}', 'select': 'org_id'})
+                org_id = me[0].get('org_id', '') if me else ''
+            if not org_id:
+                self._json(200, {"ok": True, "members": []})
+                return
+            members = _supa('profiles', params={
+                'org_id': f'eq.{org_id}',
+                'select': 'id,display_name,avatar_url,status,org_id',
+            })
+            self._json(200, {"ok": True, "members": members})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Notifications ────────────────────────────────────────────────────────────
+
+    def _social_notif_read(self):
+        """POST /api/social/notifications/read — mark notifications read."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail     = payload.get('sub', '')
+        body      = self._body()
+        notif_ids = body.get('ids', [])   # empty list → mark ALL unread
+        try:
+            if notif_ids:
+                for nid in notif_ids:
+                    _supa('notifications', method='PATCH',
+                          params={'id': f'eq.{nid}', 'user_id': f'eq.{gmail}'},
+                          body={'read': True}, use_service_key=True)
+            else:
+                _supa('notifications', method='PATCH',
+                      params={'user_id': f'eq.{gmail}', 'read': 'eq.false'},
+                      body={'read': True}, use_service_key=True)
+            self._json(200, {"ok": True})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    # ── Project Media Hub ────────────────────────────────────────────────────────
+
+    def _social_media_save(self):
+        """POST /api/social/media/save — save a generated render to project media."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail = payload.get('sub', '')
+        body  = self._body()
+        media_url   = body.get('media_url', '')
+        title       = body.get('title', 'Untitled')
+        description = body.get('description', '')
+        media_type  = body.get('media_type', 'image')
+        tags        = body.get('tags', [])
+        org_id      = body.get('org_id', '')
+        if not media_url:
+            self._json(400, {"ok": False, "error": "media_url required"})
+            return
+        try:
+            row  = _supa('project_media', method='POST',
+                         body={'user_id': gmail, 'org_id': org_id, 'title': title,
+                               'description': description, 'media_url': media_url,
+                               'media_type': media_type, 'tags': tags},
+                         use_service_key=True)
+            item = row[0] if isinstance(row, list) and row else row
+            self._json(200, {"ok": True, "media": item})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
+    def _social_media_list(self):
+        """POST /api/social/media/list — list project media for user or org."""
+        payload = self._require_auth()
+        if not payload:
+            return
+        gmail = payload.get('sub', '')
+        body  = self._body()
+        org_id     = body.get('org_id', '')
+        media_type = body.get('media_type', '')
+        limit      = int(body.get('limit', 40))
+        offset     = int(body.get('offset', 0))
+        try:
+            params = {
+                'select': 'id,user_id,title,description,media_url,media_type,tags,created_at',
+                'order':  'created_at.desc',
+                'limit':  str(limit),
+                'offset': str(offset),
+            }
+            if org_id:
+                params['org_id']  = f'eq.{org_id}'
+            else:
+                params['user_id'] = f'eq.{gmail}'
+            if media_type:
+                params['media_type'] = f'eq.{media_type}'
+            items = _supa('project_media', params=params)
+            self._json(200, {"ok": True, "items": items, "count": len(items)})
+        except Exception as e:
+            self._json(500, {"ok": False, "error": str(e)})
+
 
 if __name__ == "__main__":
     init_db()
