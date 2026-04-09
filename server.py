@@ -1783,15 +1783,17 @@ class Handler(BaseHTTPRequestHandler):
         gemini_body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048}
         }
 
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}"
             req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
-            with _urllib_req.urlopen(req, timeout=55) as r:
+            with _urllib_req.urlopen(req, timeout=90) as r:
                 resp_data = json.loads(r.read())
-            ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+            candidate    = resp_data["candidates"][0]
+            ai_text      = candidate["content"]["parts"][0]["text"]
+            finish_reason = candidate.get("finishReason", "STOP")
         except Exception as e:
             try:
                 conn = get_db()
@@ -1808,7 +1810,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             self._json(500, {"ok": False, "error": f"Gemini API error: {str(e)}"}); return
 
-        self._json(200, {"ok": True, "response": ai_text, "credits_after": credits_after})
+        self._json(200, {"ok": True, "response": ai_text, "finish_reason": finish_reason, "credits_after": credits_after})
 
     def _ai_image(self):
         """POST /api/ai/image -- Multi-image Gemini generation (10 credits x count, atomic refund on failure)"""
