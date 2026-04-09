@@ -546,6 +546,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/plan-features":        self._get_plan_features_public()
         elif path == "/api/models":               self._get_user_models()
         elif path == "/api/assets":               self._get_assets()   # â AssetBrowser JS endpoint
+        elif path == "/api/admin/ai/wallets":     self._admin_ai_wallets()
+        elif path == "/api/admin/ai/topups":      self._admin_ai_topups()
         else:
             m_hw  = re.match(r"^/api/admin/licenses/([^/]+)/hwids$",      path)
             m_dl  = re.match(r"^/api/admin/licenses/([^/]+)/downloads$",   path)
