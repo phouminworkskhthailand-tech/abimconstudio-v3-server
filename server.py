@@ -1953,7 +1953,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── Build expanded prompt (secret sauce) ────────────────────────────────────
         style_desc = style if style else "Realistic"
-        ar_hint    = f"aspect ratio {aspect_ratio}" if aspect_ratio != "1:1" else ""
+        _ar_labels = {"16:9": "16:9 widescreen landscape", "9:16": "9:16 portrait vertical",
+                      "4:3": "4:3 standard landscape", "3:4": "3:4 portrait", "1:1": ""}
+        ar_hint    = _ar_labels.get(str(aspect_ratio), f"aspect ratio {aspect_ratio}") if aspect_ratio != "1:1" else ""
         lighting   = body.get("lighting", "cinematic lighting")
 
         # Resolution quality tier
@@ -1986,61 +1988,87 @@ class Handler(BaseHTTPRequestHandler):
                 f"Negative: {negative_prompt}."
             )
 
+        # ── Map aspect ratio to API values ────────────────────────────────────────
+        _ar_map = {
+            "1:1": "1:1", "square": "1:1",
+            "4:3": "4:3", "standard": "4:3",
+            "3:4": "3:4", "portrait": "3:4",
+            "16:9": "16:9", "wide": "16:9",
+            "9:16": "9:16", "story": "9:16",
+        }
+        api_ar = _ar_map.get(str(aspect_ratio).lower(), "1:1")
+
+        # ── Generate image_count images ───────────────────────────────────────────
         images = []
         last_error = None
 
         for i in range(image_count):
             try:
-                parts = []
                 ref = image_b64 or inspo_b64
-                ref_mime_key = "image_mime" if image_b64 else "inspiration_mime"
+
                 if ref:
+                    # img2img path: Gemini Flash with reference image
+                    # NOTE: imageGenerationConfig inside generationConfig is INVALID and causes 400.
+                    ref_mime_key = "image_mime" if image_b64 else "inspiration_mime"
                     mime = "image/jpeg" if body.get(ref_mime_key, "jpeg") == "jpeg" else "image/png"
-                    parts.append({"inlineData": {"mimeType": mime, "data": ref}})
-                parts.append({"text": full_prompt})
-
-                # Map UI aspect ratio values to Gemini API format
-                _ar_map = {
-                    "1:1": "1:1", "square": "1:1",
-                    "4:3": "4:3", "standard": "4:3",
-                    "3:4": "3:4", "portrait": "3:4",
-                    "16:9": "16:9", "wide": "16:9",
-                    "9:16": "9:16", "story": "9:16",
-                }
-                gemini_ar = _ar_map.get(str(aspect_ratio).lower(), "1:1")
-                gemini_body = {
-                    "contents": [{"role": "user", "parts": parts}],
-                    "generationConfig": {
-                        "responseModalities": ["TEXT", "IMAGE"],
-                        "imageGenerationConfig": {"aspectRatio": gemini_ar}
+                    gemini_parts = [
+                        {"inlineData": {"mimeType": mime, "data": ref}},
+                        {"text": full_prompt}
+                    ]
+                    gemini_body = {
+                        "contents": [{"role": "user", "parts": gemini_parts}],
+                        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
                     }
-                }
+                    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                           f"{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}")
+                    req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
+                                              headers={"Content-Type": "application/json"})
+                    with _urllib_req.urlopen(req, timeout=120) as r:
+                        resp_data = json.loads(r.read())
 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
-                req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
-                                          headers={"Content-Type": "application/json"})
-                with _urllib_req.urlopen(req, timeout=90) as r:
-                    resp_data = json.loads(r.read())
+                    img_b64 = None
+                    candidates = resp_data.get("candidates", [])
+                    if candidates:
+                        for part in candidates[0].get("content", {}).get("parts", []):
+                            if "inlineData" in part:
+                                img_b64 = part["inlineData"]["data"]
+                                break
 
-                img_b64 = None
-                candidates = resp_data.get("candidates", [])
-                if candidates:
-                    for part in candidates[0].get("content", {}).get("parts", []):
-                        if "inlineData" in part:
-                            img_b64 = part["inlineData"]["data"]
-                            break
+                    if not img_b64:
+                        finish    = candidates[0].get("finishReason", "?") if candidates else "no_candidates"
+                        pts_debug = [list(p.keys()) for p in candidates[0].get("content", {}).get("parts", [])] if candidates else []
+                        raise ValueError(f"No image in Gemini response #{i+1}. finishReason={finish}, parts={pts_debug}")
 
-                if not img_b64:
-                    finish      = candidates[0].get("finishReason", "?") if candidates else "no_candidates"
-                    parts_types = [list(p.keys()) for p in candidates[0].get("content", {}).get("parts", [])] if candidates else []
-                    raise ValueError(f"No image in response #{i+1}. finishReason={finish}, parts={parts_types}")
+                else:
+                    # text-to-image path: Imagen 3 for higher quality + native aspect ratio
+                    imagen_body = {
+                        "instances": [{"prompt": full_prompt}],
+                        "parameters": {
+                            "sampleCount": 1,
+                            "aspectRatio": api_ar,
+                            "personGeneration": "dont_allow"
+                        }
+                    }
+                    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                           f"imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}")
+                    req = _urllib_req.Request(url, data=json.dumps(imagen_body).encode(),
+                                              headers={"Content-Type": "application/json"})
+                    with _urllib_req.urlopen(req, timeout=120) as r:
+                        resp_data = json.loads(r.read())
+
+                    img_b64 = None
+                    predictions = resp_data.get("predictions", [])
+                    if predictions:
+                        img_b64 = predictions[0].get("bytesBase64Encoded")
+
+                    if not img_b64:
+                        raise ValueError(f"No image in Imagen3 response #{i+1}. keys={list(resp_data.keys())}")
 
                 images.append(img_b64)
 
             except Exception as e:
                 last_error = str(e)
                 break
-
         generated = len(images)
         failed    = image_count - generated
         if failed > 0:
