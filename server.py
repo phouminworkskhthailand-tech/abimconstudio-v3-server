@@ -1985,17 +1985,17 @@ class Handler(BaseHTTPRequestHandler):
 
         mime_str = "image/jpeg" if inspo_mime == "jpeg" else "image/png"
         analysis_prompt = (
-            "Analyse this architectural inspiration image and extract the following 4 render parameters. "
-            "Respond ONLY with a valid JSON object (no markdown, no extra text) with exactly these keys:\n"
-            "{\n"
-            '  \"landscape_context\": \"brief description of the landscape/site context (e.g. tropical garden, urban street, mountain hillside)\",\n'
-            '  \"sky_condition\": \"sky and lighting description (e.g. golden hour sunset, overcast midday, clear blue sky with scattered clouds)\",\n'
-            '  \"cars_props\": \"vehicles and street props present or ideal (e.g. modern SUVs parked, no vehicles, light traffic with motorcycles)\",\n'
-            '  \"mood_tone\": \"overall mood and colour tone (e.g. warm and inviting, cool and minimalist, dramatic and moody)\"\n'
-            "}\n"
-            "Base your answers strictly on what you can observe or reasonably infer from the image."
+            "Analyse this architectural inspiration image and extract 4 render parameters. "
+            "You MUST respond with ONLY a single-line minified JSON object. "
+            "No markdown fences, no newlines inside values, no extra text before or after. "
+            "Use exactly these 4 keys with short English phrases (no line breaks inside values):\n"
+            '{"landscape_context":"...","sky_condition":"...","cars_props":"...","mood_tone":"..."}\n\n'
+            "landscape_context = landscape/site context (e.g. tropical garden, urban street, mountain hillside)\n"
+            "sky_condition = sky and lighting (e.g. golden hour sunset, overcast midday, clear blue sky)\n"
+            "cars_props = vehicles and props (e.g. modern SUVs parked, no vehicles, light street traffic)\n"
+            "mood_tone = mood and colour tone (e.g. warm and inviting, cool minimalist, dramatic and moody)\n"
+            "Base answers strictly on what you observe in the image. Output ONLY the JSON, nothing else."
         )
-
         gemini_body = {
             "contents": [{
                 "role": "user",
@@ -2017,13 +2017,26 @@ class Handler(BaseHTTPRequestHandler):
 
             raw_text = resp_data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-            # Strip markdown fences if Gemini wraps the JSON
-            if raw_text.startswith("```"):
-                raw_text = raw_text.split("```")[1]
-                if raw_text.startswith("json"):
-                    raw_text = raw_text[4:]
-                raw_text = raw_text.strip()
-
+            # ── Robust JSON extraction ──────────────────────────────
+            # 1) Strip markdown fences
+            if "```" in raw_text:
+                parts_md = raw_text.split("```")
+                for part_md in parts_md:
+                    part_md = part_md.strip()
+                    if part_md.startswith("json"):
+                        part_md = part_md[4:].strip()
+                    if part_md.startswith("{"):
+                        raw_text = part_md
+                        break
+            # 2) Extract only the {...} block (ignore prose around JSON)
+            brace_s = raw_text.find("{")
+            brace_e = raw_text.rfind("}")
+            if brace_s != -1 and brace_e != -1:
+                raw_text = raw_text[brace_s : brace_e + 1]
+            # 3) Collapse literal newlines inside the JSON string
+            raw_text = raw_text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+            import re as _re2
+            raw_text = _re2.sub(r"  +", " ", raw_text)
             params = json.loads(raw_text)
             required = {"landscape_context", "sky_condition", "cars_props", "mood_tone"}
             if not required.issubset(params.keys()):
