@@ -169,6 +169,19 @@ def _supa(table, method='GET', params=None, body=None, use_service_key=False, ex
         raw = r.read()
         return json.loads(raw) if raw else []
 
+def _ensure_profile(gmail):
+    """Ensure a profile row exists for the given gmail. No-op if already present."""
+    if not gmail or not SUPABASE_URL:
+        return
+    try:
+        _supa('profiles', method='POST',
+              body={'gmail': gmail, 'display_name': gmail.split('@')[0]},
+              extra_headers={'Prefer': 'return=minimal,resolution=ignore-duplicates'},
+              use_service_key=True)
+    except Exception:
+        pass  # profile already exists or Supabase unreachable — safe to ignore
+
+
 
 try:
     import urllib.request as _urllib_req
@@ -2511,6 +2524,7 @@ class Handler(BaseHTTPRequestHandler):
         if not payload:
             return
         gmail   = payload.get('sub', '')
+        _ensure_profile(gmail)
         body    = self._body()
         content   = body.get('content', '').strip()
         image_url = body.get('image_url', '')
