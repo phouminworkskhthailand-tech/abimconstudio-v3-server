@@ -23,7 +23,11 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_CHAT_MODEL  = 'gemini-2.5-flash'
 GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image'  # native image gen model
 AI_CHAT_COST  = 1    # credits per chat message
-AI_IMAGE_COST = 10   # credits per image generation
+AI_IMAGE_COST = 10   # credits per image (multiplied by image_count)
+
+# ── Supabase (optional — for RAG material context) ──────────────────────────────────────────────
+SUPABASE_URL      = os.environ.get('SUPABASE_URL', '')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
 
 try:
     import urllib.request as _urllib_req
@@ -1652,7 +1656,52 @@ class Handler(BaseHTTPRequestHandler):
     # ââ AI Suite (Banana Pro) âââââââââââââââââââââââââââââââââââââââââââââââââ
     # ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
-    def _ai_validate_token_and_credits(self, cost):
+    def _fetch_material_context(self, prompt: str) -> str:
+        """Query Supabase boq_items for materials relevant to the prompt.
+
+        Whitelist SELECT only: material_name, material_price, labor_name, labor_price.
+        Never exposes gmail, password, user_id, or any PII.
+        Returns a formatted string to inject into the system prompt, or '' if unavailable.
+        """
+        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+            return ''
+        # Simple keyword detection for construction topics
+        construction_keywords = [
+            'material', 'price', 'cost', 'concrete', 'steel', 'tile', 'brick', 'cement',
+            'wood', 'glass', 'paint', 'plumbing', 'electrical', 'labour', 'labor',
+            'floor', 'wall', 'roof', 'door', 'window', 'beam', 'column', 'footing',
+        ]
+        prompt_lower = prompt.lower()
+        is_construction = any(kw in prompt_lower for kw in construction_keywords)
+        if not is_construction:
+            return ''
+        try:
+            url = (SUPABASE_URL.rstrip('/') +
+                   "/rest/v1/boq_items"
+                   "?select=material_name,material_price,labor_name,labor_price"
+                   "&limit=20")
+            req = _urllib_req.Request(url, headers={
+                "apikey":        SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+                "Content-Type":  "application/json",
+            })
+            with _urllib_req.urlopen(req, timeout=5) as r:
+                rows = json.loads(r.read())
+            if not rows:
+                return ''
+            lines = ["Reference Material Prices (from project database):"]
+            for row in rows[:20]:
+                mn = row.get('material_name', '')
+                mp = row.get('material_price', '')
+                ln = row.get('labor_name', '')
+                lp = row.get('labor_price', '')
+                if mn:
+                    lines.append(f"  - {mn}: {mp}" + (f" | Labor: {ln} {lp}" if ln else ''))
+            return '\n'.join(lines)
+        except Exception:
+            return ''  # RAG is best-effort
+
+        def _ai_validate_token_and_credits(self, cost):
         """Validate session token + check/deduct credits. Returns (payload, gmail, error)."""
         payload = self._require_auth()
         if not payload:
@@ -1686,106 +1735,204 @@ class Handler(BaseHTTPRequestHandler):
         return balance
 
     def _ai_chat(self):
-        """POST /api/ai/chat â proxy to Gemini 1.5 Pro (1 credit)"""
+        """POST /api/ai/chat -- BIM Assistant multi-turn chat via Gemini (1 credit, atomic refund on failure)"""
         if not GEMINI_API_KEY:
             self._json(503, {"ok": False, "error": "AI service not configured"}); return
         payload, gmail, err = self._ai_validate_token_and_credits(AI_CHAT_COST)
         if payload is None: return
 
-        body         = self._body()
-        user_message = body.get("message", "").strip()
-        context_json = body.get("context_json")
-        image_b64    = body.get("image_base64")
+        body              = self._body()
+        user_message      = body.get("message", "").strip()
+        context_json      = body.get("context_json")
+        image_b64         = body.get("image_base64")
+        previous_messages = body.get("previous_messages", [])
 
         if not user_message:
             self._json(400, {"ok": False, "error": "message is required"}); return
 
-        # Build Gemini request
+        credits_after = self._ai_deduct_credits(gmail, AI_CHAT_COST, "chat", "Chat: "+user_message[:60])
+
+        material_context = self._fetch_material_context(user_message)
+
         system_prompt = (
-            "You are Banana Pro, an expert BIM & BOQ assistant for AbimconStudio SketchUp extension. "
+            "You are BIM Assistant, an expert BIM & BOQ assistant for AbimconStudio SketchUp extension. "
             "You specialize in construction cost analysis, bill of quantities, materials, and architectural advice. "
             "When given BOQ JSON data, analyze quantities, costs, materials, and give professional construction advice. "
             "Be concise, practical, and use professional construction terminology. "
             "Format responses with clear sections. Use Lao/Thai context when relevant."
         )
+        if material_context:
+            system_prompt += f"\n\n{material_context}"
+
+        contents = []
+        for msg in previous_messages:
+            role    = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ("user", "model") and content:
+                contents.append({"role": role, "parts": [{"text": content}]})
 
         parts = []
         if context_json:
             parts.append({"text": f"BOQ Context Data:\n{json.dumps(context_json, ensure_ascii=False, indent=2)}\n\n"})
         if image_b64:
-            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+            mime = "image/jpeg" if body.get("image_mime", "jpeg") == "jpeg" else "image/png"
+            parts.append({"inlineData": {"mimeType": mime, "data": image_b64}})
         parts.append({"text": user_message})
+        contents.append({"role": "user", "parts": parts})
 
         gemini_body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": parts}],
+            "contents": contents,
             "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
         }
 
         try:
-            url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}"
-            req  = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_CHAT_MODEL}:generateContent?key={GEMINI_API_KEY}"
+            req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
             with _urllib_req.urlopen(req, timeout=55) as r:
                 resp_data = json.loads(r.read())
             ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
+            try:
+                conn = get_db()
+                conn.execute("UPDATE ai_wallets SET credits = credits + ?, total_used = total_used - ? WHERE gmail=?",
+                             (AI_CHAT_COST, AI_CHAT_COST, gmail))
+                conn.execute(
+                    "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+                    (gmail, 'refund', AI_CHAT_COST,
+                     conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()['credits'],
+                     f"Auto-refund: Gemini chat error")
+                )
+                conn.commit(); conn.close()
+            except Exception:
+                pass
             self._json(500, {"ok": False, "error": f"Gemini API error: {str(e)}"}); return
 
-        credits_after = self._ai_deduct_credits(gmail, AI_CHAT_COST, "chat", "Chat: "+user_message[:60])
         self._json(200, {"ok": True, "response": ai_text, "credits_after": credits_after})
 
-    def _ai_image(self):
-        """POST /api/ai/image â Gemini image generation (10 credits)"""
+        def _ai_image(self):
+        """POST /api/ai/image -- Multi-image Gemini generation (10 credits x count, atomic refund on failure)"""
         if not GEMINI_API_KEY:
             self._json(503, {"ok": False, "error": "AI service not configured"}); return
-        payload, gmail, err = self._ai_validate_token_and_credits(AI_IMAGE_COST)
-        if payload is None: return
 
-        body        = self._body()
-        prompt      = body.get("prompt", "").strip()
-        image_b64   = body.get("image_base64")
+        body          = self._body()
+        prompt        = body.get("prompt", "").strip()
+        style         = body.get("style", "").strip()
+        image_b64     = body.get("image_base64")
+        inspo_b64     = body.get("inspiration_base64")
+        image_count   = max(1, min(4, int(body.get("image_count", 1))))
+        resolution    = body.get("resolution", "2048x2048")
+        aspect_ratio  = body.get("aspect_ratio", "1:1")
 
         if not prompt:
             self._json(400, {"ok": False, "error": "prompt is required"}); return
 
-        parts = []
-        if image_b64:
-            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
-            parts.append({"text": f"Based on this reference image, generate: {prompt}. High quality architectural visualization."})
+        total_cost = AI_IMAGE_COST * image_count
+        payload, gmail, err = self._ai_validate_token_and_credits(total_cost)
+        if payload is None: return
+
+        credits_after = self._ai_deduct_credits(
+            gmail, total_cost, "image",
+            f"Image Gen x{image_count}: " + prompt[:50]
+        )
+
+        style_desc = style if style else "Realistic"
+        ar_hint    = f"Aspect ratio: {aspect_ratio}." if aspect_ratio != "1:1" else ""
+        res_hint   = f"Resolution target: {resolution}." if resolution != "2048x2048" else ""
+
+        has_ref = bool(image_b64 or inspo_b64)
+        if has_ref:
+            full_prompt = (
+                f"You are an architectural visualization AI. "
+                f"Using the attached reference image as inspiration/geometry, "
+                f"generate a high-quality professional architectural image. "
+                f"Style: {style_desc}. {ar_hint} {res_hint} Request: {prompt}. "
+                f"Make it look professional, with realistic lighting, materials, and surroundings."
+            )
         else:
-            parts.append({"text": f"Generate an architectural image: {prompt}. High quality, professional architectural visualization."})
+            full_prompt = (
+                f"Generate a high-quality professional architectural image. "
+                f"Style: {style_desc}. {ar_hint} {res_hint} Subject: {prompt}. "
+                f"Photorealistic, detailed, with realistic lighting and materials."
+            )
 
-        gemini_body = {
-            "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
-        }
+        images = []
+        last_error = None
 
-        try:
-            url  = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
-            req  = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(), headers={"Content-Type": "application/json"})
-            with _urllib_req.urlopen(req, timeout=60) as r:
-                resp_data = json.loads(r.read())
+        for i in range(image_count):
+            try:
+                parts = []
+                ref = image_b64 or inspo_b64
+                ref_mime_key = "image_mime" if image_b64 else "inspiration_mime"
+                if ref:
+                    mime = "image/jpeg" if body.get(ref_mime_key, "jpeg") == "jpeg" else "image/png"
+                    parts.append({"inlineData": {"mimeType": mime, "data": ref}})
+                parts.append({"text": full_prompt})
 
-            # Extract image from response
-            img_b64 = None
-            for part in resp_data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
-                if "inlineData" in part:
-                    img_b64 = part["inlineData"]["data"]
-                    break
+                gemini_body = {
+                    "contents": [{"role": "user", "parts": parts}],
+                    "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+                }
 
-            if not img_b64:
-                # Debug: log what model returned
-                cands=resp_data.get("candidates",[])
-                dbg=f"finish={cands[0].get('finishReason','?') if cands else 'none'} parts={[list(p.keys()) for p in cands[0].get('content',{}).get('parts',[])]} pf={resp_data.get('promptFeedback','')}"[:200]
-                self._json(500, {"ok": False, "error": dbg}); return
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}"
+                req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
+                                          headers={"Content-Type": "application/json"})
+                with _urllib_req.urlopen(req, timeout=90) as r:
+                    resp_data = json.loads(r.read())
 
-        except Exception as e:
-            self._json(500, {"ok": False, "error": f"Image generation error: {str(e)}"}); return
+                img_b64 = None
+                candidates = resp_data.get("candidates", [])
+                if candidates:
+                    for part in candidates[0].get("content", {}).get("parts", []):
+                        if "inlineData" in part:
+                            img_b64 = part["inlineData"]["data"]
+                            break
 
-        credits_after = self._ai_deduct_credits(gmail, AI_IMAGE_COST, "image", "Image Gen: "+prompt[:60])
-        self._json(200, {"ok": True, "image_base64": img_b64, "credits_after": credits_after})
+                if not img_b64:
+                    finish      = candidates[0].get("finishReason", "?") if candidates else "no_candidates"
+                    parts_types = [list(p.keys()) for p in candidates[0].get("content", {}).get("parts", [])] if candidates else []
+                    raise ValueError(f"No image in response #{i+1}. finishReason={finish}, parts={parts_types}")
 
-    def _ai_get_credits(self):
+                images.append(img_b64)
+
+            except Exception as e:
+                last_error = str(e)
+                break
+
+        generated = len(images)
+        failed    = image_count - generated
+        if failed > 0:
+            refund_amt = AI_IMAGE_COST * failed
+            try:
+                conn = get_db()
+                conn.execute(
+                    "UPDATE ai_wallets SET credits = credits + ?, total_used = total_used - ? WHERE gmail=?",
+                    (refund_amt, refund_amt, gmail)
+                )
+                new_bal = conn.execute("SELECT credits FROM ai_wallets WHERE gmail=?", (gmail,)).fetchone()['credits']
+                conn.execute(
+                    "INSERT INTO ai_transactions (gmail, type, amount, balance_after, description) VALUES (?,?,?,?,?)",
+                    (gmail, 'refund', refund_amt, new_bal,
+                     f"Partial refund: {failed} image(s) failed to generate")
+                )
+                conn.commit(); conn.close()
+                credits_after = new_bal
+            except Exception:
+                pass
+
+        if not images:
+            self._json(500, {"ok": False,
+                             "error": f"Image generation error: {last_error}"}); return
+
+        self._json(200, {
+            "ok":           True,
+            "images":       images,
+            "image_base64": images[0],
+            "count":        generated,
+            "credits_after": credits_after,
+        })
+
+        def _ai_get_credits(self):
         """POST /api/ai/credits â Get current credit balance"""
         payload = self._require_auth()
         if not payload: return
