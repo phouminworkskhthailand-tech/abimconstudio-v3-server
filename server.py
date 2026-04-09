@@ -1769,8 +1769,8 @@ class Handler(BaseHTTPRequestHandler):
             # Extract image from response
             img_b64 = None
             for part in resp_data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
-                if "inline_data" in part:
-                    img_b64 = part["inline_data"]["data"]
+                if "inlineData" in part:
+                    img_b64 = part["inlineData"]["data"]
                     break
 
             if not img_b64:
