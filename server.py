@@ -1986,15 +1986,15 @@ class Handler(BaseHTTPRequestHandler):
         mime_str = "image/jpeg" if inspo_mime == "jpeg" else "image/png"
         analysis_prompt = (
             "Analyse this architectural inspiration image and extract 4 render parameters. "
-            "You MUST respond with ONLY a single-line minified JSON object. "
-            "No markdown fences, no newlines inside values, no extra text before or after. "
-            "Use exactly these 4 keys with short English phrases (no line breaks inside values):\n"
-            '{"landscape_context":"...","sky_condition":"...","cars_props":"...","mood_tone":"..."}\n\n'
-            "landscape_context = landscape/site context (e.g. tropical garden, urban street, mountain hillside)\n"
-            "sky_condition = sky and lighting (e.g. golden hour sunset, overcast midday, clear blue sky)\n"
-            "cars_props = vehicles and props (e.g. modern SUVs parked, no vehicles, light street traffic)\n"
-            "mood_tone = mood and colour tone (e.g. warm and inviting, cool minimalist, dramatic and moody)\n"
-            "Base answers strictly on what you observe in the image. Output ONLY the JSON, nothing else."
+            "Rules: output ONLY a raw JSON object. No markdown, no code fences, no explanations. "
+            "Values must be plain text with NO quotation marks, NO apostrophes, NO special characters. "
+            "Keep each value under 10 words. Use these 4 keys:\n"
+            "landscape_context: site/landscape (example: tropical garden urban street mountain hillside)\n"
+            "sky_condition: sky and lighting (example: golden hour sunset overcast midday clear blue sky)\n"
+            "cars_props: vehicles and props (example: modern SUVs parked no vehicles light street traffic)\n"
+            "mood_tone: mood and colour tone (example: warm inviting cool minimalist dramatic moody)\n"
+            "Copy this format exactly and fill VALUES without any quotes inside them:\n"
+            '{"landscape_context":"VALUE","sky_condition":"VALUE","cars_props":"VALUE","mood_tone":"VALUE"}'
         )
         gemini_body = {
             "contents": [{
@@ -2035,8 +2035,23 @@ class Handler(BaseHTTPRequestHandler):
                 raw_text = raw_text[brace_s : brace_e + 1]
             # 3) Collapse literal newlines inside the JSON string
             raw_text = raw_text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-            import re as _re2
-            raw_text = _re2.sub(r"  +", " ", raw_text)
+            import re as _re
+            raw_text = _re.sub(r'  +', ' ', raw_text)
+            # 4) Try strict JSON parse; fall back to per-key regex (handles unescaped quotes)
+            try:
+                params = json.loads(raw_text)
+            except Exception:
+                def _extract_val(txt, key):
+                    m = _re.search(r'"' + key + r'"\s*:\s*"(.*?)"(?=\s*[,}])', txt, _re.DOTALL)
+                    if m: return m.group(1).strip()
+                    m2 = _re.search(r'"' + key + r'"\s*:\s*"([^"]{3,})', txt)
+                    return m2.group(1).strip() if m2 else "unknown"
+                params = {
+                    "landscape_context": _extract_val(raw_text, "landscape_context"),
+                    "sky_condition":     _extract_val(raw_text, "sky_condition"),
+                    "cars_props":        _extract_val(raw_text, "cars_props"),
+                    "mood_tone":         _extract_val(raw_text, "mood_tone"),
+                }
             params = json.loads(raw_text)
             required = {"landscape_context", "sky_condition", "cars_props", "mood_tone"}
             if not required.issubset(params.keys()):
