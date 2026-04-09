@@ -1701,7 +1701,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return ''  # RAG is best-effort
 
-        def _ai_validate_token_and_credits(self, cost):
+    def _ai_validate_token_and_credits(self, cost):
         """Validate session token + check/deduct credits. Returns (payload, gmail, error)."""
         payload = self._require_auth()
         if not payload:
@@ -1810,7 +1810,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json(200, {"ok": True, "response": ai_text, "credits_after": credits_after})
 
-        def _ai_image(self):
+    def _ai_image(self):
         """POST /api/ai/image -- Multi-image Gemini generation (10 credits x count, atomic refund on failure)"""
         if not GEMINI_API_KEY:
             self._json(503, {"ok": False, "error": "AI service not configured"}); return
@@ -1932,7 +1932,7 @@ class Handler(BaseHTTPRequestHandler):
             "credits_after": credits_after,
         })
 
-        def _ai_get_credits(self):
+    def _ai_get_credits(self):
         """POST /api/ai/credits â Get current credit balance"""
         payload = self._require_auth()
         if not payload: return
