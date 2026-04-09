@@ -1999,70 +1999,46 @@ class Handler(BaseHTTPRequestHandler):
         api_ar = _ar_map.get(str(aspect_ratio).lower(), "1:1")
 
         # ── Generate image_count images ───────────────────────────────────────────
+        # ── Generate image_count images (Gemini Flash native image generation) ─────
         images = []
         last_error = None
 
         for i in range(image_count):
             try:
+                gemini_parts = []
+                # Attach reference image when available (SketchUp viewport takes priority)
                 ref = image_b64 or inspo_b64
-
                 if ref:
-                    # img2img path: Gemini Flash with reference image
-                    # NOTE: imageGenerationConfig inside generationConfig is INVALID and causes 400.
                     ref_mime_key = "image_mime" if image_b64 else "inspiration_mime"
                     mime = "image/jpeg" if body.get(ref_mime_key, "jpeg") == "jpeg" else "image/png"
-                    gemini_parts = [
-                        {"inlineData": {"mimeType": mime, "data": ref}},
-                        {"text": full_prompt}
-                    ]
-                    gemini_body = {
-                        "contents": [{"role": "user", "parts": gemini_parts}],
-                        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
-                    }
-                    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-                           f"{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}")
-                    req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
-                                              headers={"Content-Type": "application/json"})
-                    with _urllib_req.urlopen(req, timeout=120) as r:
-                        resp_data = json.loads(r.read())
+                    gemini_parts.append({"inlineData": {"mimeType": mime, "data": ref}})
+                gemini_parts.append({"text": full_prompt})
 
-                    img_b64 = None
-                    candidates = resp_data.get("candidates", [])
-                    if candidates:
-                        for part in candidates[0].get("content", {}).get("parts", []):
-                            if "inlineData" in part:
-                                img_b64 = part["inlineData"]["data"]
-                                break
+                # IMPORTANT: generationConfig only accepts responseModalities for image models.
+                # imageGenerationConfig is NOT a valid key here — it causes HTTP 400.
+                gemini_body = {
+                    "contents": [{"role": "user", "parts": gemini_parts}],
+                    "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
+                }
+                url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                       f"{GEMINI_IMAGE_MODEL}:generateContent?key={GEMINI_API_KEY}")
+                req = _urllib_req.Request(url, data=json.dumps(gemini_body).encode(),
+                                          headers={"Content-Type": "application/json"})
+                with _urllib_req.urlopen(req, timeout=90) as r:
+                    resp_data = json.loads(r.read())
 
-                    if not img_b64:
-                        finish    = candidates[0].get("finishReason", "?") if candidates else "no_candidates"
-                        pts_debug = [list(p.keys()) for p in candidates[0].get("content", {}).get("parts", [])] if candidates else []
-                        raise ValueError(f"No image in Gemini response #{i+1}. finishReason={finish}, parts={pts_debug}")
+                img_b64 = None
+                candidates = resp_data.get("candidates", [])
+                if candidates:
+                    for part in candidates[0].get("content", {}).get("parts", []):
+                        if "inlineData" in part:
+                            img_b64 = part["inlineData"]["data"]
+                            break
 
-                else:
-                    # text-to-image path: Imagen 3 for higher quality + native aspect ratio
-                    imagen_body = {
-                        "instances": [{"prompt": full_prompt}],
-                        "parameters": {
-                            "sampleCount": 1,
-                            "aspectRatio": api_ar,
-                            "personGeneration": "dont_allow"
-                        }
-                    }
-                    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-                           f"imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}")
-                    req = _urllib_req.Request(url, data=json.dumps(imagen_body).encode(),
-                                              headers={"Content-Type": "application/json"})
-                    with _urllib_req.urlopen(req, timeout=120) as r:
-                        resp_data = json.loads(r.read())
-
-                    img_b64 = None
-                    predictions = resp_data.get("predictions", [])
-                    if predictions:
-                        img_b64 = predictions[0].get("bytesBase64Encoded")
-
-                    if not img_b64:
-                        raise ValueError(f"No image in Imagen3 response #{i+1}. keys={list(resp_data.keys())}")
+                if not img_b64:
+                    finish    = candidates[0].get("finishReason", "?") if candidates else "no_candidates"
+                    pts_debug = [list(p.keys()) for p in candidates[0].get("content", {}).get("parts", [])] if candidates else []
+                    raise ValueError(f"No image in response #{i+1}. finishReason={finish}, parts={pts_debug}")
 
                 images.append(img_b64)
 
@@ -2115,13 +2091,16 @@ class Handler(BaseHTTPRequestHandler):
         # │─ New: section-specific deep analysis │────────────────────
         if section_type in SECTION_ANALYSIS_PROMPTS:
             # For 'camera' section, prefer the base viewport; otherwise use inspiration image
-            if section_type == "camera":
-                img_b64  = body.get("base_base64",  "").strip() or inspo_b64
-                img_mime = body.get("base_mime",    "jpeg")
+            # Section 1 (materials) uses the SketchUp 3D base viewport (geometry locked).
+            # All other sections use the inspiration / reference image.
+            base_b64  = body.get("base_base64", "").strip()
+            base_mime = body.get("base_mime",   "jpeg")
+            if section_type == "materials" and base_b64:
+                img_b64  = base_b64
+                img_mime = base_mime
             else:
                 img_b64  = inspo_b64
                 img_mime = inspo_mime
-
             if not img_b64:
                 self._json(400, {"ok": False, "error": "No image provided for section analysis"}); return
 
