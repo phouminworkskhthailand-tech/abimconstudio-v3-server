@@ -140,6 +140,35 @@ SECTION_ANALYSIS_PROMPTS = {
 # ── Supabase (optional — for RAG material context) ──────────────────────────────────────────────
 SUPABASE_URL      = os.environ.get('SUPABASE_URL', '')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
+SUPABASE_SERVICE_KEY  = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+
+def _supa(table, method='GET', params=None, body=None, use_service_key=False, extra_headers=None):
+    """Thin helper for Supabase REST API calls from server-side Python."""
+    if not SUPABASE_URL:
+        raise RuntimeError("SUPABASE_URL not configured")
+    import urllib.request as _req
+    import urllib.error   as _uerr
+    key   = SUPABASE_SERVICE_KEY if use_service_key else SUPABASE_ANON_KEY
+    url   = SUPABASE_URL.rstrip('/') + '/rest/v1/' + table
+    if params:
+        from urllib.parse import urlencode
+        url += '?' + urlencode(params)
+    hdrs  = {
+        'apikey':        SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + key,
+        'Content-Type':  'application/json',
+        'Prefer':        'return=representation',
+    }
+    if extra_headers:
+        hdrs.update(extra_headers)
+    req = _req.Request(url, headers=hdrs, method=method)
+    if body is not None:
+        import json as _json2
+        req.data = _json2.dumps(body).encode()
+    with _req.urlopen(req, timeout=12) as r:
+        raw = r.read()
+        return json.loads(raw) if raw else []
+
 
 try:
     import urllib.request as _urllib_req
