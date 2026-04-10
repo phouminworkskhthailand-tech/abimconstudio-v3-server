@@ -750,6 +750,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/social/ai-mention":         self._social_ai_mention()
         elif path == "/api/social/share-generated":    self._social_share_generated()
         elif path == "/api/social/report-post":        self._social_report_post()
+        elif path == "/api/profile/upload_avatar":     self._profile_upload_avatar()
         elif path == "/api/admin/ai/credits/add":     self._admin_add_credits()
         elif path == "/api/admin/ai/topups/approve": self._admin_approve_topup()
         elif path == "/api/download-model":         self._download_model()
@@ -3060,7 +3061,7 @@ class Handler(BaseHTTPRequestHandler):
     # ============================================================================
 
     def _community_profile(self):
-        """GET /api/community/profile?user_id=X — fetch user profile + posts."""
+        """GET /api/community/profile?user_id=X — fetch user profile + posts + stats."""
         payload = self._require_auth()
         if not payload: return
         qs = parse_qs(urlparse(self.path).query)
@@ -3078,13 +3079,124 @@ class Handler(BaseHTTPRequestHandler):
                           params={'author_id': f'eq.{user_id}', 'is_approved': 'eq.true',
                                   'order': 'created_at.desc', 'limit': '20'})
             if not isinstance(posts, list): posts = []
+
+            # ── Stats: total approved posts + total projects (user_generations) ──
+            post_count = 0
+            project_count = 0
+            try:
+                all_posts = _supa('community_posts',
+                                  params={'author_id': f'eq.{user_id}',
+                                          'is_approved': 'eq.true',
+                                          'select': 'id'})
+                if isinstance(all_posts, list): post_count = len(all_posts)
+            except Exception:
+                post_count = len(posts)
+            try:
+                gens = _supa('user_generations',
+                             params={'user_id': f'eq.{user_id}', 'select': 'id'})
+                if isinstance(gens, list): project_count = len(gens)
+            except Exception:
+                project_count = 0
+
             self._json(200, {"ok": True, "profile": {
-                'user_id': p.get('gmail'), 'display_name': p.get('display_name', 'User'),
-                'avatar_url': p.get('avatar_url', ''), 'user_tier': p.get('user_tier', 'free'),
-                'bio': p.get('bio', '')
-            }, "posts": posts})
+                'gmail':        p.get('gmail'),
+                'user_id':      p.get('gmail'),
+                'display_name': p.get('display_name', 'User'),
+                'avatar_url':   p.get('avatar_url', ''),
+                'user_tier':    p.get('user_tier', 'free'),
+                'plan':         p.get('plan', 'free'),
+                'bio':          p.get('bio', ''),
+            }, "posts": posts, "stats": {
+                "post_count":    post_count,
+                "project_count": project_count,
+            }})
         except Exception as e:
             self._json(500, {"ok": False, "error": str(e)})
+
+    def _profile_upload_avatar(self):
+        """POST /api/profile/upload_avatar — upload base64 image to Supabase Storage
+        bucket 'avatars', then update profiles.avatar_url. Body: {base64, filename?}.
+        User is identified by the JWT (prevents updating other users' avatars).
+        """
+        payload = self._require_auth()
+        if not payload: return
+        gmail = payload.get('gmail', '')
+        if not gmail:
+            self._json(401, {"ok": False, "error": "Missing gmail in token"})
+            return
+        try:
+            body = self._body() or {}
+        except Exception:
+            self._json(400, {"ok": False, "error": "Invalid JSON body"})
+            return
+        b64 = body.get('base64') or body.get('image_base64') or ''
+        if not b64:
+            self._json(400, {"ok": False, "error": "base64 required"})
+            return
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            self._json(500, {"ok": False, "error": "Supabase Storage not configured"})
+            return
+        try:
+            raw = base64.b64decode(b64)
+        except Exception as e:
+            self._json(400, {"ok": False, "error": "Invalid base64: " + str(e)})
+            return
+        if len(raw) > 6 * 1024 * 1024:
+            self._json(413, {"ok": False, "error": "Image too large (max 6 MB)"})
+            return
+
+        # Build unique path: {gmail_sanitized}/{timestamp}.jpg
+        safe_gmail = re.sub(r'[^a-zA-Z0-9._-]', '_', gmail)
+        ts = int(time.time() * 1000)
+        object_path = safe_gmail + '/' + str(ts) + '.jpg'
+
+        # Upload to Supabase Storage via REST (service key required for server-side writes)
+        import urllib.request as _req
+        import urllib.error as _uerr
+        storage_url = SUPABASE_URL.rstrip('/') + '/storage/v1/object/avatars/' + object_path
+        hdrs = {
+            'Authorization': 'Bearer ' + SUPABASE_SERVICE_KEY,
+            'apikey':        SUPABASE_SERVICE_KEY,
+            'Content-Type':  'image/jpeg',
+            'x-upsert':      'true',
+            'Cache-Control': '3600',
+        }
+        try:
+            req = _req.Request(storage_url, data=raw, headers=hdrs, method='POST')
+            with _req.urlopen(req, timeout=30) as resp:
+                resp.read()
+        except _uerr.HTTPError as e:
+            try:
+                err_body = e.read().decode('utf-8', 'ignore')
+            except Exception:
+                err_body = str(e)
+            self._json(500, {"ok": False, "error": "Supabase Storage upload failed: " + err_body})
+            return
+        except Exception as e:
+            self._json(500, {"ok": False, "error": "Upload error: " + str(e)})
+            return
+
+        # Public URL (bucket must be set to public)
+        public_url = SUPABASE_URL.rstrip('/') + '/storage/v1/object/public/avatars/' + object_path
+
+        # Ensure profile row exists, then patch avatar_url
+        try:
+            _ensure_profile(gmail)
+            _supa('profiles',
+                  method='PATCH',
+                  params={'gmail': 'eq.' + gmail},
+                  body={'avatar_url': public_url},
+                  use_service_key=True)
+        except Exception as e:
+            try: self.log_entry(gmail, 'Avatar uploaded but DB update failed: ' + str(e), 'warn')
+            except Exception: pass
+
+        try:
+            self.log_entry(gmail, 'Updated profile avatar', 'profile')
+        except Exception:
+            pass
+
+        self._json(200, {"ok": True, "avatar_url": public_url})
 
 
 if __name__ == "__main__":
