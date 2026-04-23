@@ -149,14 +149,14 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
   <nav id="sidebar">
     <h2>AbimconStudio</h2>
     <div class="nav" id="nav">
-      <button data-view="overview" class="active"><span class="ic">\uD83D\uDCCA</span>Overview</button>
-      <button data-view="map"><span class="ic">\uD83C\uDF0D</span>User Map</button>
-      <button data-view="users"><span class="ic">\uD83D\uDC64</span>Users</button>
-      <button data-view="roles"><span class="ic">\uD83C\uDFAB</span>License Roles</button>
-      <button data-view="plans"><span class="ic">\uD83D\uDCB3</span>Plans &amp; Credits</button>
-      <button data-view="usage"><span class="ic">\uD83D\uDCC8</span>Usage Events</button>
-      <button data-view="settings"><span class="ic">\u2699\uFE0F</span>Settings</button>
-      <button data-view="io"><span class="ic">\uD83D\uDCE5</span>Import / Export</button>
+      <button data-view="overview" class="active"><span class="ic">📊</span>Overview</button>
+      <button data-view="map"><span class="ic">🌍</span>User Map</button>
+      <button data-view="users"><span class="ic">👤</span>Users</button>
+      <button data-view="roles"><span class="ic">🎫</span>License Roles</button>
+      <button data-view="plans"><span class="ic">💳</span>Plans &amp; Credits</button>
+      <button data-view="usage"><span class="ic">📈</span>Usage Events</button>
+      <button data-view="settings"><span class="ic">⚙️</span>Settings</button>
+      <button data-view="io"><span class="ic">📥</span>Import / Export</button>
     </div>
     <div class="who">
       <b>admin</b><br>
@@ -198,7 +198,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
         <h1>Users</h1>
         <div class="btns">
           <input class="search" id="userSearch" placeholder="Search email / license key / city">
-          <button class="btn" id="btnAddUser">\u2795 Add user</button>
+          <button class="btn" id="btnAddUser">➕ Add user</button>
         </div>
       </div>
       <div class="card" style="padding:0;overflow:auto">
@@ -302,14 +302,14 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
         <div class="card">
           <h3>Export</h3>
           <p class="muted">Download a workbook with one sheet per table (Users / License_Roles / Plans / Settings). Open, edit, re-import.</p>
-          <button class="btn primary" id="btnExport">\u2B07\uFE0F  Download admin_export.xlsx</button>
-          <div style="margin-top:10px"><a class="muted" id="lnkTemplate" href="#">\uD83D\uDCCE Download blank template (admin_users_template.xlsx)</a></div>
+          <button class="btn primary" id="btnExport">⬇️  Download admin_export.xlsx</button>
+          <div style="margin-top:10px"><a class="muted" id="lnkTemplate" href="#">📎 Download blank template (admin_users_template.xlsx)</a></div>
         </div>
         <div class="card">
           <h3>Import</h3>
           <p class="muted">Pick an .xlsx exported from this panel (or matching the template) and apply changes.</p>
           <input type="file" id="importFile" accept=".xlsx,.xls" style="color:var(--muted)">
-          <div style="margin-top:10px"><button class="btn ok" id="btnImport">\u2705  Apply changes</button></div>
+          <div style="margin-top:10px"><button class="btn ok" id="btnImport">✅  Apply changes</button></div>
           <div id="importLog" class="mono muted" style="margin-top:10px;white-space:pre-wrap;max-height:180px;overflow:auto"></div>
         </div>
       </div>
