@@ -907,7 +907,7 @@ async function _loadClassicV1(){
   if (!_v1Html) {
     st.textContent = 'Fetching v1 from GitHub…';
     try {
-      const r = await fetch('https://raw.githubusercontent.com/phouminworkskhthailand-tech/abimconstudio-v3-server/main/admin_v1.html', { cache: 'po-store' });
+      const r = await fetch('https://raw.githubusercontent.com/phouminworkskhthailand-tech/abimconstudio-v3-server/main/admin_v1.html', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       _v1Html = await r.text();
     } catch(e){ st.textContent = 'Load failed: ' + e.message; return; }
