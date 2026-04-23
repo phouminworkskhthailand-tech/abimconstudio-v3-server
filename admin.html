@@ -135,7 +135,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
 
 <!-- ═════════ LOGIN GATE ═════════ -->
 <div id="gate">
-  <form class="card" id="gateForm">
+  <form class="card" id="gateForm" onsubmit="return (function(e){e.preventDefault();var pw=document.getElementById(&quot;gatePw&quot;);var err=document.getElementById(&quot;gateErr&quot;);if(pw.value===&quot;abimcon_admin_2026&quot;){sessionStorage.setItem(&quot;abd_admin_unlocked&quot;,&quot;1&quot;);document.getElementById(&quot;gate&quot;).classList.add(&quot;hidden&quot;);document.getElementById(&quot;app&quot;).classList.remove(&quot;hidden&quot;);return false;}else{err.textContent=&quot;Wrong password.&quot;;pw.value=&quot;&quot;;return false;}})(event);">
     <h1>AbimconStudio Admin</h1>
     <p>Enter admin password to continue.</p>
     <input type="password" id="gatePw" autocomplete="current-password" placeholder="admin password" autofocus>
@@ -336,6 +336,39 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
 
+<script>
+// Sync gate unlock — runs BEFORE the module import so the form does not
+// do a native submit before the modules handler attaches.
+(function(){
+  const form = document.getElementById("gateForm");
+  const pw = document.getElementById("gatePw");
+  const err = document.getElementById("gateErr");
+  const gate = document.getElementById("gate");
+  const app = document.getElementById("app");
+  if(!form) return;
+  const ADMIN_PASSWORD = "abimcon_admin_2026";
+  function unlock(){
+    sessionStorage.setItem("abd_admin_unlocked","1");
+    gate.classList.add("hidden");
+    app.classList.remove("hidden");
+  }
+  form.addEventListener("submit", function(e){
+    e.preventDefault();
+    if(pw.value === ADMIN_PASSWORD){
+      unlock();
+      document.dispatchEvent(new CustomEvent("abd:unlocked"));
+    } else {
+      err.textContent = "Wrong password.";
+      pw.value = "";
+    }
+  });
+  if(sessionStorage.getItem("abd_admin_unlocked") === "1") unlock();
+  document.getElementById("btnLogout")?.addEventListener("click", function(){
+    sessionStorage.removeItem("abd_admin_unlocked");
+    location.reload();
+  });
+})();
+</script>
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -1059,7 +1092,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
 
 <!-- ═════════ LOGIN GATE ═════════ -->
 <div id="gate">
-  <form class="card" id="gateForm">
+  <form class="card" id="gateForm" onsubmit="return (function(e){e.preventDefault();var pw=document.getElementById(&quot;gatePw&quot;);var err=document.getElementById(&quot;gateErr&quot;);if(pw.value===&quot;abimcon_admin_2026&quot;){sessionStorage.setItem(&quot;abd_admin_unlocked&quot;,&quot;1&quot;);document.getElementById(&quot;gate&quot;).classList.add(&quot;hidden&quot;);document.getElementById(&quot;app&quot;).classList.remove(&quot;hidden&quot;);return false;}else{err.textContent=&quot;Wrong password.&quot;;pw.value=&quot;&quot;;return false;}})(event);">
     <h1>AbimconStudio Admin</h1>
     <p>Enter admin password to continue.</p>
     <input type="password" id="gatePw" autocomplete="current-password" placeholder="admin password" autofocus>
