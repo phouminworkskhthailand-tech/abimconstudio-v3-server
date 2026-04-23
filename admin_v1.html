@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AbimconStudio — License Manager</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.topbar{background:linear-gradient(135deg,#1e40af,#0ea5e9);padding:16px 28px;display:flex;align-items:center;gap:12px}
+.topbar h1{font-size:1.3rem;font-weight:700;color:#fff}
+.topbar .right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.container{max-width:1300px;margin:32px auto;padding:0 20px}
+#login-section{display:flex;justify-content:center;margin-top:80px}
+.login-card{background:#1e293b;border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.login-card h2{color:#38bdf8;margin-bottom:24px;text-align:center;font-size:1.4rem}
+label{display:block;margin-bottom:6px;font-size:.85rem;color:#94a3b8}
+input[type=password],input[type=text],input[type=email],input[type=number],input[type=date],select,textarea{width:100%;padding:10px 14px;background:#0f172a;border:1.5px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.95rem;outline:none;transition:.2s}
+input:focus,select:focus,textarea:focus{border-color:#38bdf8}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:600;transition:.15s}
+.btn-primary{background:linear-gradient(135deg,#1e40af,#0ea5e9);color:#fff}
+.btn-primary:hover{opacity:.88}
+.btn-danger{background:#ef4444;color:#fff;padding:5px 11px;font-size:.8rem}
+.btn-danger:hover{background:#dc2626}
+.btn-success{background:#22c55e;color:#fff;padding:5px 11px;font-size:.8rem}
+.btn-sm{background:#334155;color:#e2e8f0;padding:5px 11px;font-size:.8rem}
+.btn-sm:hover{background:#475569}
+.btn-warn{background:#f59e0b;color:#000;padding:5px 11px;font-size:.8rem}
+.btn-warn:hover{background:#d97706}
+.btn-info{background:#0ea5e9;color:#fff;padding:5px 11px;font-size:.8rem}
+.btn-logout{background:rgba(255,255,255,.15);border:none;color:#fff;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.85rem}
+.btn-logout:hover{background:rgba(255,255,255,.25)}
+.form-group{margin-bottom:16px}
+#dashboard-section{display:none}
+.tabs{display:flex;gap:4px;margin-bottom:24px;border-bottom:2px solid #1e293b;padding-bottom:0}
+.tab{padding:10px 20px;cursor:pointer;font-size:.9rem;font-weight:600;color:#64748b;border-radius:8px 8px 0 0;border:none;background:none;transition:.15s}
+.tab.active{color:#38bdf8;background:#1e293b;border-bottom:2px solid #38bdf8;margin-bottom:-2px}
+.tab-content{display:none}.tab-content.active{display:block}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin-bottom:28px}
+.stat{background:#1e293b;border-radius:12px;padding:20px;text-align:center}
+.stat .num{font-size:2rem;font-weight:700;color:#38bdf8}
+.stat .lbl{font-size:.78rem;color:#64748b;margin-top:4px}
+.card{background:#1e293b;border-radius:12px;padding:24px;margin-bottom:24px}
+.card h3{color:#38bdf8;margin-bottom:18px;font-size:1rem}
+.toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.toolbar input{flex:1;min-width:180px}
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+th{background:#0f172a;padding:9px 10px;text-align:left;color:#64748b;font-weight:600;text-transform:uppercase;font-size:.7rem;letter-spacing:.05em;white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid #1e293b;vertical-align:middle}
+tr:hover td{background:#162032}
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.73rem;font-weight:600}
+.b-active{background:#14532d;color:#4ade80}h
+.b-suspended{background:#450a0a;color:#f87171}
+.b-admin{background:#1e3a5f;color:#60a5fa}
+.b-editor{background:#14532d;color:#4ade80}
+.b-viewer{background:#3f2a00;color:#fbbf24}
+.b-blocked{background:#450a0a;color:#f87171}
+.b-pro{background:#312e81;color:#a5b4fc}
+.b-free{background:#1c1917;color:#a8a29e}
+.b-premium{background:#451a03;color:#fb923c}
+.b-free-model{background:#1c1917;color:#a8a29e}
+.dev-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:12px;font-size:.73rem;font-weight:600}
+.dev-ok{background:#164e63;color:#67e8f9}
+.dev-full{background:#451a03;color:#fb923c}
+.hwid-chip{font-family:monospace;font-size:.7rem;color:#94a3b8;background:#0f172a;padding:2px 6px;border-radius:4px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;cursor:help}
+.expiry-ok{color:#4ade80;font-size:.78rem}
+.expiry-warn{color:#fbbf24;font-size:.78rem}
+.expiry-expired{color:#f87171;font-size:.78rem;font-weight:700}
+.expiry-banner{display:none;background:linear-gradient(90deg,#7c2d12,#92400e);border:1px solid #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:.88rem;color:#fef3c7}
+.expiry-banner .eb-title{font-weight:700;font-size:.95rem;margin-bottom:6px}
+.expiry-banner .eb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.expiry-banner .eb-chip{background:rgba(0,0,0,.35);border-radius:6px;padding:3px 10px;font-size:.8rem;cursor:pointer;border:1px solid #f59e0b;color:#fef3c7}
+.expiry-banner .eb-chip:hover{background:rgba(245,158,11,.25)}
+.btn-renew{background:#16a34a;color:#fff;padding:5px 11px;font-size:.8rem;border:none;border-radius:6px;cursor:pointer}
+.btn-renew:hover{background:#15803d}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;justify-content:center;align-items:flex-start;padding-top:40px;overflow-y:auto}
+.modal-overlay.show{display:flex}
+.modal{background:#1e293b;border-radius:16px;padding:32px;width:100%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,.5);margin:auto}
+.modal h3{color:#38bdf8;margin-bottom:20px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.alert{padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:.88rem;display:none}
+.alert-error{background:#450a0a;color:#f87171;border:1px solid #7f1d1d}
+.alert-success{background:#14532d;color:#4ade80;border:1px solid #166534}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dl-bar{height:6px;background:#1e293b;border-radius:3px;margin-top:3px}
+.dl-bar-fill{height:100%;border-radius:3px;background:#38bdf8;transition:width .3s}
+.dl-bar-fill.warn{background:#f59e0b}
+.dl-bar-fill.danger{background:#ef4444}
+.section-tag{font-size:.7rem;background:#0f172a;color:#38bdf8;padding:2px 7px;border-radius:4px;margin-left:8px}
+/* Toggle switch */
+.toggle-wrap{display:flex;justify-content:center;align-items:center}
+.toggle{position:relative;display:inline-block;width:40px;height:22px}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:#334155;border-radius:22px;transition:.2s}
+.toggle-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+input:checked+.toggle-slider{background:#22c55e}
+input:checked+.toggle-slider:before{transform:translateX(18px)}
+input:disabled+.toggle-slider{opacity:.4;cursor:not-allowed}
+/* Plan matrix */
+.plan-matrix{border-collapse:collapse;width:100%}
+.plan-matrix th,.plan-matrix td{padding:10px 14px;border-bottom:1px solid #1e293b;text-align:center}
+.plan-matrix th{background:#0f172a;font-size:.75rem;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.plan-matrix td:first-child,.plan-matrix th:first-child{text-align:left}
+.plan-matrix tr:hover td{background:#162032}
+.plan-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:700;text-transform:uppercase}
+.plan-badge.free{background:#1c1917;color:#a8a29e}
+.plan-badge.pro{background:#312e81;color:#a5b4fc}
+.plan-badge.trial{background:#14532d;color:#4ade80}
+.plan-badge.custom{background:#1e293b;color:#94a3b8}
+.b-trial{background:#14532d;color:#4ade80}
+#trial-days-row{display:none}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <svg width="28" height="28" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".15"/><path d="M8 22 L16 10 L24 22" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="10" r="2.5" fill="#38bdf8"/></svg>
+  <h1>AbimconStudio — License Manager <span style="font-size:.75rem;opacity:.6;font-weight:400">v3</span></h1>
+  <div class="right">
+    <span id="admin-label" style="font-size:.85rem;color:#bfdbfe;opacity:.9"></span>
+    <button class="btn-logout" id="logout-btn" style="display:none" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<!-- ── Login ── -->
+<div id="login-section">
+  <div class="login-card">
+    <h2>&#128274; Admin Login</h2>
+    <div id="login-err" class="alert alert-error"></div>
+    <div class="form-group">
+      <label>Admin Password</label>
+      <input type="password" id="admin-pass" placeholder="Enter admin password"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px"
+            onclick="doLogin()" id="login-btn">Login</button>
+  </div>
+</div>
+
+<!-- ── Dashboard ── -->
+<div id="dashboard-section">
+  <div class="container">
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat"><div class="num" id="s-total">-</div><div class="lbl">Total Licenses</div></div>
+      <div class="stat"><div class="num" id="s-active">-</div><div class="lbl">Active</div></div>
+      <div class="stat"><div class="num" id="s-suspended">-</div><div class="lbl">Suspended</div></div>
+      <div class="stat"><div class="num" id="s-logins">-</div><div class="lbl">Total Logins</div></div>
+      <div class="stat"><div class="num" id="s-models">-</div><div class="lbl">Models in R2</div></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('licenses',this)">&#128273; Licenses</button>
+      <button class="tab"        onclick="switchTab('models',this)">&#128190; Models</button>
+      <button class="tab"        onclick="switchTab('logs',this)">&#128196; Activity</button>
+      <button class="tab"        onclick="switchTab('plans',this)">&#127775; Plans &amp; Roles</button>
+      <button class="tab"        onclick="switchTab('security',this)">&#128737; Security</button>
+      <button class="tab"        onclick="switchTab('aicredits',this)">&#129302; AI Credits</button>
+    </div>
+
+    <!-- ── Tab: Licenses ── -->
+    <div class="tab-content active" id="tab-licenses">
+      <div class="card">
+        <h3>&#128273; License Accounts</h3>
+        <div class="toolbar">
+          <input type="text" id="search" placeholder="Search by name, email, key, plan…" oninput="filterTable()">
+          <button class="btn btn-primary" onclick="openAdd()">+ Add Account</button>
+        </div>
+        <div id="expiry-banner" class="expiry-banner">
+          <div class="eb-title">⚠️ Licenses Expiring Soon or Already Expired</div>
+          <span style="color:#fde68a;font-size:.82rem">Click a name below to quickly renew:</span>
+          <div class="eb-chips" id="expiry-banner-chips"></div>
+        </div>
+        <div id="tbl-err" class="alert alert-error"></div>
+        <div id="tbl-ok"  class="alert alert-success"></div>
+        <div style="overflow-x:auto">
+          <table><thead><tr>
+            <th>#</th><th>Name</th><th>Gmail</th><th>License Key</th>
+            <th>Role</th><th>Plan</th><th>Status</th><th>Expiry</th>
+            <th>Devices</th><th>HWIDs</th><th>Downloads Today</th><th>Last Login</th><th>Actions</th>
+          </tr></thead><tbody id="lic-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Models ── -->
+    <div class="tab-content" id="tab-models">
+      <div class="card">
+        <h3>&#128190; Cloudflare R2 Models <span class="section-tag">Secure Downloads</span></h3>
+        <div class="toolbar">
+          <input type="text" id="model-search" placeholder="Search models…" oninput="filterModels()">
+          <button class="btn btn-primary" onclick="openAddModel()">+ Add Model</button>
+        </div>
+        <div id="mod-err" class="alert alert-error"></div>
+        <div id="mod-ok"  class="alert alert-success"></div>
+        <div style="overflow-x:auto">
+          <table><thead><tr>
+            <th>Name / Category</th><th>R2 Path</th><th>Plan</th><th>Size</th><th>Description</th><th>Added</th><th>Status</th><th>Actions</th>
+          </tr></thead><tbody id="mod-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Logs ── -->
+    <div class="tab-content" id="tab-logs">
+      <div class="card">
+        <h3>&#128196; Recent Activity <span class="section-tag">Last 100</span></h3>
+        <div style="overflow-x:auto">
+          <table><thead><tr>
+            <th>Time</th><th>Gmail</th><th>Action</th><th>Result</th><th>Public IP</th><th>HWID</th>
+          </tr></thead>
+          <tbody id="log-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Plans & Roles ── -->
+    <div class="tab-content" id="tab-plans">
+      <div class="card">
+        <h3>&#127775; Plan &amp; Feature Management <span class="section-tag">Live — saves instantly</span></h3>
+        <p style="color:#64748b;font-size:.85rem;margin-bottom:18px">Toggle which features each plan can access. Changes take effect on the user's next login.</p>
+        <div class="toolbar" style="margin-bottom:20px">
+          <button class="btn btn-primary" onclick="openAddPlan()">+ Add Plan / Role</button>
+          <button class="btn btn-sm"      onclick="openAddFeature()">+ Add Feature</button>
+          <button class="btn btn-sm"      onclick="loadPlanFeatures()">&#8635; Refresh</button>
+        </div>
+        <div id="plan-err" class="alert alert-error"></div>
+        <div id="plan-ok"  class="alert alert-success"></div>
+        <div style="overflow-x:auto">
+          <table class="plan-matrix" id="plan-matrix-tbl">
+            <thead id="plan-matrix-head"><tr><th>Feature</th></tr></thead>
+            <tbody id="plan-matrix-body"></tbody>
+          </table>
+        </div>
+        <p style="color:#475569;font-size:.78rem;margin-top:14px">&#9432; The <strong style="color:#e2e8f0">features</strong> object is returned inside <code style="color:#38bdf8">/api/validate</code> — your SketchUp extension can read it to show/hide UI elements.</p>
+      </div>
+      <div class="card">
+        <h3>&#128161; How Trial Accounts Work</h3>
+        <div style="background:#0f172a;border-radius:8px;padding:14px;font-size:.85rem;color:#94a3b8;line-height:1.8">
+          <p>&#10003; Set plan to <strong style="color:#4ade80">Trial</strong> when adding/editing an account</p>
+          <p>&#10003; Enter the number of trial days — expiry is set automatically</p>
+          <p>&#10003; Trial plan features are managed in the table above</p>
+          <p>&#10003; When the trial expires, the user sees "License expired. Contact your administrator."</p>
+          <p>&#10003; Upgrade by changing plan to <strong style="color:#a5b4fc">Pro</strong> and extending the expiry date</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Security ── -->
+    <div class="tab-content" id="tab-security">
+      <div class="card">
+        <h3>&#128737; Security Status <span class="section-tag">Live</span></h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px">
+          <div class="stat"><div class="num" id="sec-challenge" style="font-size:1.4rem">&#10003;</div><div class="lbl">Challenge/Nonce Active</div></div>
+          <div class="stat"><div class="num" id="sec-ratelimit" style="font-size:1.4rem">&#10003;</div><div class="lbl">Rate Limiter Active</div></div>
+          <div class="stat"><div class="num" id="sec-hwid" style="font-size:1.4rem">&#10003;</div><div class="lbl">HWID Binding Active</div></div>
+          <div class="stat"><div class="num" id="sec-jwt" style="font-size:1.4rem">&#10003;</div><div class="lbl">JWT Token Auth</div></div>
+        </div>
+        <div style="background:#0f172a;border-radius:8px;padding:16px;font-size:.85rem;color:#94a3b8;line-height:1.7">
+          <p style="color:#38bdf8;font-weight:700;margin-bottom:8px">&#128270; Security Checklist</p>
+          <p>&#10003; <strong style="color:#4ade80">Challenge-Response</strong> — Every login requires a one-time nonce from /api/challenge</p>
+          <p>&#10003; <strong style="color:#4ade80">Rate Limiting</strong> — 5 attempts/60s → 5-min lockout; 15+ total → 1-hour lockout</p>
+          <p>&#10003; <strong style="color:#4ade80">HWID Binding</strong> — Device fingerprint bound per license, max devices enforced</p>
+          <p>&#10003; <strong style="color:#4ade80">JWT Expiry</strong> — Session tokens expire in 8 hours; client uses token-expiry auth</p>
+          <p>&#10003; <strong style="color:#4ade80">Input Validation</strong> — Email and license key format validated server-side</p>
+          <p>&#10003; <strong style="color:#4ade80">No Offline Bypass</strong> — Hardcoded offline licenses removed from extension</p>
+          <p>&#10003; <strong style="color:#4ade80">R2 Signed URLs</strong> — Download links expire in 5 minutes, HWID verified</p>
+          <p>&#10003; <strong style="color:#4ade80">DevTools Detection</strong> — Login dialog locks when browser inspector is open</p>
+          <p style="margin-top:12px;color:#fbbf24">&#9888; <strong>Reminder:</strong> Encrypt .rb files to .rbe using SketchUp Extension Encryption Service before commercial release.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>&#128204; Rate-Limited IPs <span class="section-tag">From Logs</span></h3>
+        <p style="color:#64748b;font-size:.85rem;margin-bottom:12px">IPs with recent failed login attempts</p>
+        <div id="rate-limit-list" style="font-family:monospace;font-size:.82rem;color:#94a3b8">Loading…</div>
+      </div>
+    </div>
+
+    <!-- ── Tab: AI Credits ── -->
+    <div class="tab-content" id="tab-aicredits">
+      <div class="stats" id="ai-stats-row">
+        <div class="stat"><div class="num" id="ai-s-users">-</div><div class="lbl">Wallets</div></div>
+        <div class="stat"><div class="num" id="ai-s-total">-</div><div class="lbl">Total Credits</div></div>
+        <div class="stat"><div class="num" id="ai-s-used">-</div><div class="lbl">Total Used</div></div>
+        <div class="stat"><div class="num" id="ai-s-pending">-</div><div class="lbl">Pending Topups</div></div>
+      </div>
+      <div class="card">
+        <h3>&#10133; Add Credits to User</h3>
+        <div id="ai-add-err" class="alert alert-error"></div>
+        <div id="ai-add-ok"  class="alert alert-success"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="flex:2;min-width:180px;margin-bottom:0">
+            <label>Gmail Address</label>
+            <input type="email" id="ai-add-gmail" placeholder="user@gmail.com">
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px;margin-bottom:0">
+            <label>Credits</label>
+            <input type="number" id="ai-add-amount" placeholder="100" min="1">
+          </div>
+          <div class="form-group" style="flex:2;min-width:180px;margin-bottom:0">
+            <label>Note</label>
+            <input type="text" id="ai-add-note" placeholder="e.g. Monthly top-up">
+          </div>
+          <button class="btn btn-primary" onclick="addCredits()" style="margin-bottom:0;white-space:nowrap">&#10133; Add Credits</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>&#128709; Topup Requests <span class="section-tag" id="ai-pending-badge">0 pending</span></h3>
+        <div id="ai-topup-err" class="alert alert-error"></div>
+        <div id="ai-topup-ok"  class="alert alert-success"></div>
+        <div style="overflow-x:auto">
+          <table><thead><tr>
+            <th>Gmail</th><th>Credits Req.</th><th>Note</th><th>Status</th><th>Submitted</th><th>Action</th>
+          </tr></thead><tbody id="ai-topup-body"><tr><td colspan="6" style="color:#64748b;text-align:center">Loading&#8230;</td></tr></tbody></table>
+        </div>
+      </div>
+      <div class="card">
+        <h3>&#128179; All User Wallets</h3>
+        <div class="toolbar">
+          <input type="text" id="ai-wallet-search" placeholder="Search by email&#8230;" oninput="filterWallets()">
+          <button class="btn btn-sm" onclick="loadAiCredits()">&#8635; Refresh</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table><thead><tr>
+            <th>#</th><th>Name</th><th>Gmail</th><th>Credits</th><th>Purchased</th><th>Used</th><th>Since</th><th>Quick Add</th>
+          </tr></thead><tbody id="ai-wallet-body"><tr><td colspan="8" style="color:#64748b;text-align:center">Loading&#8230;</td></tr></tbody></table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── License Modal ── -->
+<div class="modal-overlay" id="modal-ov">
+  <div class="modal">
+    <h3 id="modal-title">Add Account</h3>
+    <div id="modal-err" class="alert alert-error"></div>
+    <input type="hidden" id="m-id">
+    <div class="form-row">
+      <div class="form-group"><label>Full Name</label>
+        <input type="text" id="m-name" placeholder="e.g. John Doe"></div>
+      <div class="form-group"><label>Role</label>
+        <select id="m-role">
+          <option value="editor">Editor</option>
+          <option value="admin">Admin</option>
+          <option value="viewer">Viewer</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>Gmail Address</label>
+      <input type="email" id="m-gmail" placeholder="user@gmail.com"></div>
+    <div class="form-group"><label>License Key</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="text" id="m-key" placeholder="ABIM-XXXX-XXXX-XXXX" style="flex:1">
+        <button class="btn btn-sm" type="button" onclick="genLicKey()" title="Auto-generate key">⚡ Generate</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Plan</label>
+        <select id="m-plan" onchange="onPlanChange()">
+          <option value="free">Free</option>
+          <option value="pro">Pro</option>
+          <option value="trial">Trial (time-limited)</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Expiry Date</label>
+        <input type="date" id="m-expiry">
+      </div>
+    </div>
+    <div class="form-row" id="trial-days-row">
+      <div class="form-group" style="grid-column:1/-1"><label>Trial Duration (days) <span style="color:#64748b;font-size:.78rem">— auto-sets expiry if blank above</span></label>
+        <input type="number" id="m-trial-days" value="10" min="1" max="365" placeholder="e.g. 10">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Max Devices</label>
+        <input type="number" id="m-maxdev" value="2" min="1" max="20"></div>
+      <div class="form-group"><label>Daily Download Limit</label>
+        <input type="number" id="m-ddl" placeholder="e.g. 10 (blank = plan default)"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAccount()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Model Modal ── -->
+<div class="modal-overlay" id="mod-modal-ov">
+  <div class="modal">
+    <h3 id="mod-modal-title">Add Model</h3>
+    <div id="mod-modal-err" class="alert alert-error"></div>
+    <input type="hidden" id="mm-id">
+    <div class="form-group"><label>Model Name</label>
+      <input type="text" id="mm-name" placeholder="e.g. Modern Villa v2"></div>
+    <div class="form-group"><label>R2 Path <span style="color:#64748b;font-size:.78rem">(path inside your bucket)</span></label>
+      <input type="text" id="mm-path" placeholder="e.g. models/modern-villa-v2.skp"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Plan Required</label>
+        <select id="mm-premium">
+          <option value="0">Free (anyone)</option>
+          <option value="1">Pro only</option>
+        </select>
+      </div>
+      <div class="form-group"><label>File Size (MB)</label>
+        <input type="number" id="mm-size" placeholder="0" step="0.01"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Category</label>
+        <input type="text" id="mm-category" placeholder="e.g. Architecture"></div>
+      <div class="form-group"><label>Tags <span style="color:#64748b;font-size:.78rem">(comma-separated)</span></label>
+        <input type="text" id="mm-tags" placeholder="e.g. thai,house,residential"></div>
+    </div>
+    <div class="form-group"><label>Description</label>
+      <textarea id="mm-desc" rows="2" placeholder="Optional description"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Active / Visible to Users</label>
+        <select id="mm-active">
+          <option value="1">Active (visible)</option>
+          <option value="0">Hidden</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Thumbnail <span style="color:#64748b;font-size:.78rem">(R2 path or URL)</span></label>
+        <input type="text" id="mm-thumb" placeholder="thumbnails/model.jpg or leave blank"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeModModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveModel()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Plan Modal ── -->
+<div class="modal-overlay" id="addplan-ov">
+  <div class="modal">
+    <h3>&#127775; Add New Plan / Role</h3>
+    <div id="addplan-err" class="alert alert-error"></div>
+    <div class="form-group"><label>Plan Name <span style="color:#64748b;font-size:.78rem">(lowercase, e.g. enterprise, starter)</span></label>
+      <input type="text" id="ap-name" placeholder="e.g. enterprise"></div>
+    <div class="form-group"><label>Default Feature Access</label>
+      <select id="ap-default">
+        <option value="1">All features enabled (like Pro)</option>
+        <option value="0">All features disabled (like Free)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeAddPlan()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveNewPlan()">Create Plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Feature Modal ── -->
+<div class="modal-overlay" id="addfeat-ov">
+  <div class="modal">
+    <h3>&#10024; Add New Feature</h3>
+    <div id="addfeat-err" class="alert alert-error"></div>
+    <div class="form-group"><label>Feature Key <span style="color:#64748b;font-size:.78rem">(lowercase_underscore, e.g. reports)</span></label>
+      <input type="text" id="af-key" placeholder="e.g. reports"></div>
+    <div class="form-group"><label>Display Label</label>
+      <input type="text" id="af-label" placeholder="e.g. Reports"></div>
+    <p style="color:#64748b;font-size:.82rem;margin-top:4px">This feature will be added to all plans, disabled by default. Toggle it on per-plan in the matrix.</p>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="closeAddFeature()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveNewFeature()">Add Feature</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+var TOKEN    = localStorage.getItem('abimcon_tok') || '';
+var licenses = [];
+var models   = [];
+
+/* ── Tab switching ── */
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.remove('active'); });
+  document.querySelectorAll('.tab').forEach(function(el){ el.classList.remove('active'); });
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'aicredits') loadAiCredits();
+}
+
+/* ── API helper ── */
+async function api(method, path, body) {
+  var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+  if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
+  if (body)  opts.body = JSON.stringify(body);
+  try {
+    var r = await fetch(path, opts);
+    return { ok: r.ok, status: r.status, data: await r.json().catch(function(){ return {}; }) };
+  } catch(err) {
+    return { ok: false, status: 0, data: { error: 'Cannot reach server: ' + err.message } };
+  }
+}
+
+/* ── Auth ── */
+async function doLogin() {
+  var pass = document.getElementById('admin-pass').value.trim();
+  if (!pass) { showEl('login-err','Enter your password'); return; }
+  var btn = document.getElementById('login-btn');
+  btn.textContent = 'Logging in…'; btn.disabled = true;
+  var res = await api('POST', '/api/admin/login', { password: pass });
+  btn.textContent = 'Login'; btn.disabled = false;
+  if (!res.ok) { showEl('login-err', res.data.error || 'Invalid password'); return; }
+  TOKEN = res.data.token;
+  localStorage.setItem('abimcon_tok', TOKEN);
+  showDash();
+}
+
+async function showDash() {
+  document.getElementById('login-section').style.display    = 'none';
+  document.getElementById('dashboard-section').style.display = 'block';
+  document.getElementById('logout-btn').style.display       = '';
+  document.getElementById('admin-label').textContent        = 'Admin';
+  await loadAll();
+}
+
+function logout() {
+  TOKEN = ''; localStorage.removeItem('abimcon_tok');
+  document.getElementById('login-section').style.display     = '';
+  document.getElementById('dashboard-section').style.display = 'none';
+  document.getElementById('logout-btn').style.display        = 'none';
+  document.getElementById('admin-label').textContent         = '';
+}
+
+/* ── Load all data ── */
+async function loadAll() { await Promise.all([loadLicenses(), loadLogs(), loadModels(), loadPlanFeatures()]); }
+
+/* ── Licenses ── */
+async function loadLicenses() {
+  var res = await api('GET', '/api/admin/licenses');
+  if (!res.ok) { if (res.status === 401) logout(); return; }
+  licenses = res.data.licenses || [];
+  document.getElementById('s-total').textContent     = res.data.total     ?? licenses.length;
+  document.getElementById('s-active').textContent    = res.data.active    ?? '';
+  document.getElementById('s-suspended').textContent = res.data.suspended ?? '';
+  document.getElementById('s-logins').textContent    = res.data.total_logins ?? '-';
+  renderTable(licenses);
+  renderExpiryBanner(licenses);
+}
+
+function renderExpiryBanner(rows) {
+  var today  = new Date().toISOString().substring(0,10);
+  var alerts = rows.filter(function(l) {
+    if (!l.expiry_date) return false;
+    var diff = Math.ceil((new Date(l.expiry_date) - new Date(today)) / 86400000);
+    return diff <= 30;
+  });
+  var banner = document.getElementById('expiry-banner');
+  var chips  = document.getElementById('expiry-banner-chips');
+  if (!alerts.length) { banner.style.display='none'; return; }
+  banner.style.display = '';
+  chips.innerHTML = alerts.map(function(l) {
+    var diff = Math.ceil((new Date(l.expiry_date) - new Date(today)) / 86400000);
+    var label = diff < 0 ? l.name+' (EXPIRED)' : l.name+' ('+diff+'d left)';
+    return '<span class="eb-chip" data-id="'+l.id+'" data-nm="'+esc(l.name)+'" data-exp="'+(l.expiry_date||'')+'" onclick="var d=this.dataset;renewLicense(d.id,d.nm,d.exp)">'+esc(label)+'</span>';
+  }).join('');
+}
+
+async function renewLicense(id, name, currentExpiry) {
+  var today = new Date().toISOString().substring(0,10);
+  window._rnwId   = id;
+  window._rnwBase = (currentExpiry && currentExpiry > today) ? currentExpiry : today;
+  var defDate = addDays(window._rnwBase, 365);
+  var html =
+    '<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:22px;min-width:320px;max-width:420px">' +
+    '<h3 style="margin:0 0 4px;color:#f8fafc">🔄 Renew License</h3>' +
+    '<p style="margin:0 0 14px;color:#94a3b8;font-size:.85rem">' + esc(name) +
+      (currentExpiry
+        ? '<br>Current expiry: <span style="color:#fbbf24">' + currentExpiry + '</span>'
+        : '<br><em>No expiry set</em>') + '</p>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">' +
+      '<button class="btn btn-renew" onclick="quickRenew(30)">+30 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(90)">+90 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(180)">+180 Days</button>' +
+      '<button class="btn btn-renew" onclick="quickRenew(365)">+1 Year</button>' +
+    '</div>' +
+    '<hr style="border-color:#334155;margin:12px 0">' +
+    '<label style="font-size:.83rem;color:#94a3b8">Or pick a specific date:</label><br>' +
+    '<input type="date" id="renew-date" value="' + defDate + '" min="' + today + '" style="margin-top:6px;padding:7px 10px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:.9rem;width:100%"><br>' +
+    '<button class="btn btn-renew" style="margin-top:10px;width:100%" onclick="doRenewDate()">Set This Date</button>' +
+    '<button class="btn btn-sm" style="margin-top:8px;width:100%;background:#334155" onclick="closeRenewModal()">Cancel</button>' +
+    '</div>';
+  var overlay = document.createElement('div');
+  overlay.id = 'renew-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+}
+async function quickRenew(days) {
+  closeRenewModal();
+  await applyRenew(window._rnwId, addDays(window._rnwBase, days));
+}
+async function doRenewDate() {
+  var d = document.getElementById('renew-date').value;
+  if (!d) return;
+  closeRenewModal();
+  await applyRenew(window._rnwId, d);
+}
+async function applyRenew(id, newExpiry) {
+  var res = await api('POST', '/api/admin/licenses/'+id+'/extend', { expiry_date: newExpiry });
+  var ok  = document.getElementById('tbl-ok');
+  var err = document.getElementById('tbl-err');
+  if (res.ok) {
+    ok.textContent  = '✅ License renewed → new expiry: ' + newExpiry;
+    ok.style.display = '';
+    err.style.display = 'none';
+    await loadLicenses();
+    setTimeout(function(){ ok.style.display='none'; }, 4000);
+  } else {
+    err.textContent  = '❌ Renew failed: ' + (res.data && res.data.error || res.status);
+    err.style.display = '';
+    ok.style.display  = 'none';
+  }
+}
+
+function expiryDisplay(d) {
+  if (!d) return '<span style="color:#475569">—</span>';
+  var today = new Date().toISOString().substring(0,10);
+  var diff  = Math.ceil((new Date(d) - new Date(today)) / 86400000);
+  if (diff < 0)  return '<span class="expiry-expired">EXPIRED</span>';
+  if (diff <= 30) return '<span class="expiry-warn">' + d + ' (' + diff + 'd)</span>';
+  return '<span class="expiry-ok">' + d + '</span>';
+}
+
+function dlBar(used, limit) {
+  if (!limit) return '<span style="color:#475569">—</span>';
+  var pct  = Math.min(100, Math.round(used / limit * 100));
+  var cls  = pct >= 100 ? 'danger' : pct >= 70 ? 'warn' : '';
+  return '<div style="font-size:.75rem;color:#94a3b8">' + used + '/' + limit + '</div>' +
+    '<div class="dl-bar"><div class="dl-bar-fill ' + cls + '" style="width:' + pct + '%"></div></div>';
+}
+
+function renderTable(rows) {
+  var tbody = document.getElementById('lic-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#475569;padding:24px">No accounts found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(l, i) {
+    var maxDev = l.max_devices || 2;
+    var devCnt = l.device_count || 0;
+    var devFull = devCnt >= maxDev;
+    var ddl    = l.daily_download_limit;
+    var hwids  = (l.hwids || []);
+    var hwStr  = hwids.length
+      ? hwids.map(function(h){ return '<span class="hwid-chip" title="'+esc(h.hwid)+' | '+esc(h.ip_addr||'')+'">'+esc(h.hwid.substring(0,14))+'…</span>'; }).join(' ')
+      : '<span style="color:#475569">none</span>';
+
+    return '<tr>' +
+      '<td>'+( i+1)+'</td>' +
+      '<td><strong>'+esc(l.name)+'</strong></td>' +
+      '<td style="font-size:.8rem">'+esc(l.gmail)+'</td>' +
+      '<td><code style="color:#38bdf8;font-size:.78rem">'+esc(l.license_key)+'</code></td>' +
+      '<td><span class="badge b-'+l.role+'">'+l.role+'</span></td>' +
+      '<td><span class="badge b-'+l.plan_type+'">'+l.plan_type.toUpperCase()+'</span></td>' +
+      '<td><span class="badge b-'+(l.active?'active':'suspended')+'">'+(l.active?'Active':'Suspended')+'</span></td>' +
+      '<td>'+expiryDisplay(l.expiry_date)+'</td>' +
+      '<td><span class="dev-badge '+(devFull?'dev-full':'dev-ok')+'">&#128187; '+devCnt+'/'+maxDev+'</span></td>' +
+      '<td>'+hwStr+'</td>' +
+      '<td>'+dlBar(l.downloads_today||0, ddl)+'</td>' +
+      '<td style="font-size:.76rem;color:#64748b">'+(l.last_login ? l.last_login.replace('T',' ').substring(0,16) : 'Never')+'</td>' +
+      '<td style="white-space:nowrap"><div style="display:flex;gap:2px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm"     onclick="openEdit(\''+l.id+'\')">Edit</button>' +
+        '<button class="btn '+(l.active?'btn-danger':'btn-success')+'" onclick="toggle(\''+l.id+'\','+(!l.active)+')">'+(l.active?'Suspend':'Activate')+'</button>' +
+        '<button class="btn btn-renew" data-id="'+l.id+'" data-nm="'+esc(l.name)+'" data-exp="'+(l.expiry_date||'')+'" onclick="var d=this.dataset;renewLicense(d.id,d.nm,d.exp)">🔄 Renew</button>' +
+        '<button class="btn btn-warn"   onclick="resetHwid(\''+l.id+'\',\''+esc(l.name)+'\')">↺ HWID</button>' +
+        '<button class="btn btn-info"   onclick="resetDl(\''+l.id+'\',\''+esc(l.name)+'\')">↺ DL</button>' +
+        '<button class="btn btn-danger" onclick="del(\''+l.id+'\')">Del</button>' +
+      '</div></td></tr>';
+  }).join('');
+}
+
+function filterTable() {
+  var q = document.getElementById('search').value.toLowerCase();
+  renderTable(q ? licenses.filter(function(l){ return (l.name+l.gmail+l.license_key+l.plan_type).toLowerCase().includes(q); }) : licenses);
+}
+
+/* ── Logs ── */
+async function loadLogs() {
+  var res = await api('GET', '/api/admin/logs');
+  if (!res.ok) return;
+  document.getElementById('log-body').innerHTML = (res.data.logs || []).map(function(l) {
+    var hwid = l.hwid || '';
+    var hwShort = hwid
+      ? '<span class="hwid-chip" title="'+esc(hwid)+'">'+esc(hwid.substring(0,16))+'…</span>'
+      : '<span style="color:#475569">—</span>';
+    var _blockedActions = ['hwid_blocked','download_hwid_mismatch','rate_limited','hwid_limit'];
+    var actionBadge = _blockedActions.indexOf(l.action) >= 0
+      ? '<span class="badge b-blocked">'+esc(l.action)+'</span>'
+      : l.action === 'sketchup_login' && l.success
+        ? '<span class="badge b-active">'+esc(l.action)+'</span>'
+        : esc(l.action || '');
+    return '<tr>' +
+      '<td style="font-size:.78rem;color:#64748b">'+esc((l.created_at||'').replace('T',' ').substring(0,19))+'</td>' +
+      '<td>'+esc(l.gmail||'')+'</td>' +
+      '<td>'+actionBadge+'</td>' +
+      '<td>'+(l.success ? '<span class="badge b-active">OK</span>' : '<span class="badge b-suspended">FAIL</span>')+'</td>' +
+      '<td style="font-size:.76rem;font-family:monospace">'+esc(l.ip_addr||'—')+'</td>' +
+      '<td>'+hwShort+'</td>' +
+    '</tr>';
+  }).join('');
+}
+
+/* ── Models ── */
+async function loadModels() {
+  var res = await api('GET', '/api/admin/models');
+  if (!res.ok) return;
+  models = res.data.models || [];
+  document.getElementById('s-models').textContent = models.length;
+  renderModels(models);
+}
+
+function fmtSizeMb(m) {
+  var mb = parseFloat(m.file_size_mb);
+  if (!isNaN(mb) && mb > 0) return mb.toFixed(1) + ' MB';
+  var b = parseInt(m.file_size);
+  if (!isNaN(b) && b > 0) return (b/1048576).toFixed(1) + ' MB';
+  return '—';
+}
+
+function renderModels(rows) {
+  var tbody = document.getElementById('mod-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#475569;padding:24px">No models yet. Click "+ Add Model" to add one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(m) {
+    // Use plan_required if available, fall back to is_premium flag
+    var planReq = m.plan_required || (m.is_premium ? 'pro' : 'free');
+    var isPro   = planReq === 'pro';
+    var isActive = m.active !== 0;  // default to active if field missing
+    return '<tr>' +
+      '<td><strong>'+esc(m.name)+'</strong>'+(m.category?'<br><span style="font-size:.72rem;color:#64748b">'+esc(m.category)+'</span>':'')+'</td>' +
+      '<td><code style="color:#38bdf8;font-size:.76rem">'+esc(m.r2_path)+'</code></td>' +
+      '<td><span class="badge '+(isPro?'b-premium':'b-free-model')+'">'+(isPro?'PRO':'FREE')+'</span></td>' +
+      '<td style="font-size:.78rem;color:#64748b">'+fmtSizeMb(m)+'</td>' +
+      '<td style="font-size:.78rem;color:#94a3b8;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(m.description||'')+'</td>' +
+      '<td style="font-size:.76rem;color:#64748b">'+esc((m.created_at||'').substring(0,10))+'</td>' +
+      '<td><span class="badge b-'+(isActive?'active':'suspended')+'">'+(isActive?'Active':'Hidden')+'</span></td>' +
+      '<td style="white-space:nowrap"><div style="display:flex;gap:2px">' +
+        '<button class="btn btn-sm"     onclick="openEditModel(\''+m.model_id+'\')">Edit</button>' +
+        '<button class="btn '+(isActive?'btn-danger':'btn-success')+'" onclick="toggleModel(\''+m.model_id+'\','+(!isActive)+')">'+(isActive?'Hide':'Show')+'</button>' +
+        '<button class="btn btn-danger" onclick="delModel(\''+m.model_id+'\',\''+esc(m.name)+'\')">Del</button>' +
+      '</div></td></tr>';
+  }).join('');
+}
+
+function filterModels() {
+  var q = document.getElementById('model-search').value.toLowerCase();
+  renderModels(q ? models.filter(function(m){ return (m.name+m.r2_path+m.description).toLowerCase().includes(q); }) : models);
+}
+
+/* ── License Modal ── */
+function genLicKey() {
+  var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var seg = function(n) {
+    var s = '';
+    for (var i = 0; i < n; i++) s += chars[Math.floor(Math.random() * chars.length)];
+    return s;
+  };
+  document.getElementById('m-key').value = 'ABIM-' + seg(4) + '-' + seg(4) + '-X' + (Math.floor(Math.random()*900)+100);
+}
+
+function openAdd() {
+  document.getElementById('modal-title').textContent = 'Add Account';
+  document.getElementById('m-id').value = '';
+  ['m-name','m-gmail','m-expiry','m-ddl'].forEach(function(id){ document.getElementById(id).value=''; });
+  document.getElementById('m-role').value        = 'editor';
+  document.getElementById('m-plan').value        = 'free';
+  document.getElementById('m-maxdev').value      = '2';
+  document.getElementById('m-trial-days').value  = '10';
+  document.getElementById('trial-days-row').style.display = 'none';
+  document.getElementById('modal-err').style.display = 'none';
+  genLicKey();   // auto-fill a fresh key
+  document.getElementById('modal-ov').classList.add('show');
+}
+
+function openEdit(id) {
+  var l = licenses.find(function(x){ return x.id===id; });
+  if (!l) return;
+  document.getElementById('modal-title').textContent = 'Edit Account';
+  document.getElementById('m-id').value     = l.id;
+  document.getElementById('m-name').value   = l.name;
+  document.getElementById('m-gmail').value  = l.gmail;
+  document.getElementById('m-key').value    = l.license_key;
+  document.getElementById('m-role').value   = l.role;
+  document.getElementById('m-plan').value   = l.plan_type || 'free';
+  document.getElementById('m-maxdev').value = l.max_devices || 2;
+  document.getElementById('m-expiry').value = l.expiry_date || '';
+  document.getElementById('m-ddl').value    = l.daily_download_limit != null ? l.daily_download_limit : '';
+  document.getElementById('trial-days-row').style.display = (l.plan_type === 'trial') ? '' : 'none';
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('modal-ov').classList.add('show');
+}
+
+function closeModal() { document.getElementById('modal-ov').classList.remove('show'); }
+
+async function saveAccount() {
+  var id      = document.getElementById('m-id').value;
+  var name    = document.getElementById('m-name').value.trim();
+  var gmail   = document.getElementById('m-gmail').value.trim().toLowerCase();
+  var key     = document.getElementById('m-key').value.trim().toUpperCase();
+  var role    = document.getElementById('m-role').value;
+  var plan    = document.getElementById('m-plan').value;
+  var maxDev  = parseInt(document.getElementById('m-maxdev').value) || 2;
+  var expiry  = document.getElementById('m-expiry').value || null;
+  var ddlRaw  = document.getElementById('m-ddl').value.trim();
+  var ddl       = ddlRaw !== '' ? parseInt(ddlRaw) : null;
+  var trialDays = parseInt(document.getElementById('m-trial-days').value) || 10;
+  if (!name||!gmail||!key) { showEl('modal-err','All required fields must be filled'); return; }
+  var method  = id ? 'PUT'  : 'POST';
+  var path    = id ? '/api/admin/licenses/'+id : '/api/admin/licenses';
+  var body    = { name, gmail, license_key: key, role, plan_type: plan, max_devices: maxDev, expiry_date: expiry, daily_download_limit: ddl };
+  if (plan === 'trial' && !expiry) body.trial_days = trialDays;
+  var res = await api(method, path, body);
+  if (!res.ok) { showEl('modal-err', res.data.error||'Save failed'); return; }
+  closeModal();
+  flash('tbl-ok','Account saved successfully.');
+  loadLicenses();
+}
+
+/* ── Model Modal ── */
+function openAddModel() {
+  document.getElementById('mod-modal-title').textContent = 'Add Model';
+  document.getElementById('mm-id').value = '';
+  ['mm-name','mm-path','mm-size','mm-desc','mm-tags','mm-thumb'].forEach(function(id){ document.getElementById(id).value=''; });
+  document.getElementById('mm-premium').value  = '0';
+  document.getElementById('mm-category').value = 'Architecture';
+  document.getElementById('mm-active').value   = '1';
+  document.getElementById('mod-modal-err').style.display = 'none';
+  document.getElementById('mod-modal-ov').classList.add('show');
+}
+
+function openEditModel(id) {
+  var m = models.find(function(x){ return x.model_id===id; });
+  if (!m) return;
+  document.getElementById('mod-modal-title').textContent = 'Edit Model';
+  document.getElementById('mm-id').value       = m.model_id;
+  document.getElementById('mm-name').value     = m.name;
+  document.getElementById('mm-path').value     = m.r2_path;
+  // Use plan_required if available; fall back to is_premium
+  var planReq = m.plan_required || (m.is_premium ? 'pro' : 'free');
+  document.getElementById('mm-premium').value  = planReq === 'pro' ? '1' : '0';
+  document.getElementById('mm-size').value     = m.file_size_mb || (m.file_size ? (m.file_size/1048576).toFixed(2) : '');
+  document.getElementById('mm-desc').value     = m.description || '';
+  document.getElementById('mm-category').value = m.category || 'General';
+  document.getElementById('mm-tags').value     = m.tags || '';
+  document.getElementById('mm-active').value   = (m.active !== 0) ? '1' : '0';
+  document.getElementById('mm-thumb').value    = m.thumbnail || '';
+  document.getElementById('mod-modal-err').style.display = 'none';
+  document.getElementById('mod-modal-ov').classList.add('show');
+}
+
+function closeModModal() { document.getElementById('mod-modal-ov').classList.remove('show'); }
+
+async function saveModel() {
+  var id           = document.getElementById('mm-id').value;
+  var name         = document.getElementById('mm-name').value.trim();
+  var r2_path      = document.getElementById('mm-path').value.trim();
+  var is_premium   = document.getElementById('mm-premium').value === '1';
+  var plan_required = is_premium ? 'pro' : 'free';
+  var file_size_mb = parseFloat(document.getElementById('mm-size').value) || 0;
+  var description  = document.getElementById('mm-desc').value.trim();
+  var category     = document.getElementById('mm-category').value.trim() || 'General';
+  var tags         = document.getElementById('mm-tags').value.trim();
+  var active       = document.getElementById('mm-active').value === '1';
+  var thumbnail    = document.getElementById('mm-thumb').value.trim();
+  if (!name||!r2_path) { showEl('mod-modal-err','Name and R2 Path are required'); return; }
+  var method = id ? 'PUT'  : 'POST';
+  var path   = id ? '/api/admin/models/'+id : '/api/admin/models';
+  var res = await api(method, path, {
+    name, r2_path, is_premium, plan_required, file_size_mb,
+    description, category, tags, active, thumbnail
+  });
+  if (!res.ok) { showEl('mod-modal-err', res.data.error||'Save failed'); return; }
+  closeModModal();
+  flash('mod-ok','Model saved.');
+  loadModels();
+}
+
+async function delModel(id, name) {
+  if (!confirm('Delete model "'+name+'"?\nThis only removes it from the database — the R2 file is NOT deleted.')) return;
+  var res = await api('DELETE', '/api/admin/models/'+id);
+  if (!res.ok) { flash('mod-err', res.data.error||'Delete failed'); return; }
+  flash('mod-ok','Model deleted.');
+  loadModels();
+}
+
+/* ── License Actions ── */
+async function toggle(id, newState) {
+  var res = await api('PUT', '/api/admin/licenses/'+id, { active: newState });
+  if (!res.ok) { flash('tbl-err', res.data.error||'Update failed'); return; }
+  flash('tbl-ok', newState ? 'Account activated.' : 'Account suspended.');
+  loadLicenses();
+}
+
+async function resetHwid(id, name) {
+  if (!confirm('Unbind all devices for "'+name+'"?\nThe user can register on a new device next login.')) return;
+  var res = await api('DELETE', '/api/admin/licenses/'+id+'/hwids');
+  if (!res.ok) { flash('tbl-err', res.data.error||'Reset failed'); return; }
+  flash('tbl-ok', 'Devices unbound ('+( res.data.unbound||0)+' removed).');
+  loadLicenses();
+}
+
+async function resetDl(id, name) {
+  if (!confirm('Reset today\'s download count for "'+name+'"?')) return;
+  var res = await api('DELETE', '/api/admin/licenses/'+id+'/downloads');
+  if (!res.ok) { flash('tbl-err', res.data.error||'Reset failed'); return; }
+  flash('tbl-ok', 'Download count reset ('+( res.data.reset||0)+' entries cleared).');
+  loadLicenses();
+}
+
+async function del(id) {
+  if (!confirm('Delete this account? This cannot be undone.')) return;
+  var res = await api('DELETE', '/api/admin/licenses/'+id);
+  if (!res.ok) { flash('tbl-err', res.data.error||'Delete failed'); return; }
+  flash('tbl-ok','Account deleted.');
+  loadLicenses();
+}
+
+/* ── Plan Change (show/hide trial days) ── */
+function onPlanChange() {
+  var plan = document.getElementById('m-plan').value;
+  document.getElementById('trial-days-row').style.display = plan === 'trial' ? '' : 'none';
+}
+
+/* ── Plan Features ── */
+async function loadPlanFeatures() {
+  var res = await api('GET', '/api/admin/plan-features');
+  if (!res.ok) { return; }
+  var data     = res.data;
+  var plans    = data.plans    || [];
+  var features = data.features || {};
+  var matrix   = data.matrix   || {};
+
+  // Build header row
+  var head = document.getElementById('plan-matrix-head');
+  var headRow = '<tr><th>Feature</th>';
+  plans.forEach(function(p) {
+    var badge = '<span class="plan-badge ' + (p === 'free' ? 'free' : p === 'pro' ? 'pro' : p === 'trial' ? 'trial' : 'custom') + '">' + esc(p) + '</span>';
+    headRow += '<th>' + badge + '</th>';
+  });
+  headRow += '</tr>';
+  head.innerHTML = headRow;
+
+  // Build body rows — sorted by sort_order
+  var fkeys = Object.keys(features).sort(function(a, b) {
+    return (features[a].sort_order || 99) - (features[b].sort_order || 99);
+  });
+  var bodyHTML = '';
+  fkeys.forEach(function(fk) {
+    bodyHTML += '<tr>';
+    bodyHTML += '<td><strong style="color:#e2e8f0">' + esc(features[fk].label || fk) + '</strong><br><span style="color:#475569;font-size:.73rem;font-family:monospace">' + esc(fk) + '</span></td>';
+    plans.forEach(function(p) {
+      var checked  = (matrix[p] && matrix[p][fk]) ? 'checked' : '';
+      var disabled = (p === 'pro' && fk === 'boq_input') ? 'disabled title="Core feature — always on for Pro"' : '';
+      bodyHTML += '<td><div class="toggle-wrap"><label class="toggle">'
+        + '<input type="checkbox" ' + checked + ' ' + disabled + ' onchange="toggleFeature(\'' + esc(p) + '\',\'' + esc(fk) + '\',this.checked)">'
+        + '<span class="toggle-slider"></span></label></div></td>';
+    });
+    bodyHTML += '</tr>';
+  });
+  document.getElementById('plan-matrix-body').innerHTML = bodyHTML;
+
+  // Also refresh the plan dropdown in license modal with any custom plans
+  var sel = document.getElementById('m-plan');
+  var std = ['free','pro','trial'];
+  // Remove any previously added custom options
+  Array.from(sel.options).forEach(function(o) {
+    if (!std.includes(o.value)) sel.remove(o.index);
+  });
+  plans.forEach(function(p) {
+    if (!std.includes(p)) {
+      var opt = new Option(p.charAt(0).toUpperCase()+p.slice(1), p);
+      sel.add(opt);
+    }
+  });
+}
+
+async function toggleFeature(planType, featureKey, enabled) {
+  var res = await api('PUT', '/api/admin/plan-features', { plan_type: planType, feature_key: featureKey, enabled: enabled });
+  if (!res.ok) {
+    flash('plan-err', 'Failed to save: ' + (res.data.error || 'Server error'));
+    loadPlanFeatures(); // revert UI
+    return;
+  }
+  flash('plan-ok', '\u2713 ' + planType.toUpperCase() + ' \u2192 ' + featureKey + ' set to ' + (enabled ? 'ON' : 'OFF'));
+}
+
+/* ── Add Plan Modal ── */
+function openAddPlan() {
+  document.getElementById('ap-name').value = '';
+  document.getElementById('ap-default').value = '1';
+  document.getElementById('addplan-err').style.display = 'none';
+  document.getElementById('addplan-ov').classList.add('show');
+}
+function closeAddPlan() { document.getElementById('addplan-ov').classList.remove('show'); }
+async function saveNewPlan() {
+  var name = document.getElementById('ap-name').value.trim().toLowerCase().replace(/\s+/g,'_');
+  var def  = document.getElementById('ap-default').value === '1';
+  if (!name) { showEl('addplan-err','Plan name is required'); return; }
+  var res = await api('POST', '/api/admin/plan-features', { action: 'add_plan', plan_type: name, default_enabled: def });
+  if (!res.ok) { showEl('addplan-err', res.data.error || 'Failed'); return; }
+  closeAddPlan();
+  flash('plan-ok', 'Plan "' + name + '" created!');
+  loadPlanFeatures();
+}
+
+/* ── Add Feature Modal ── */
+function openAddFeature() {
+  document.getElementById('af-key').value = '';
+  document.getElementById('af-label').value = '';
+  document.getElementById('addfeat-err').style.display = 'none';
+  document.getElementById('addfeat-ov').classList.add('show');
+}
+function closeAddFeature() { document.getElementById('addfeat-ov').classList.remove('show'); }
+async function saveNewFeature() {
+  var key   = document.getElementById('af-key').value.trim().toLowerCase().replace(/\s+/g,'_');
+  var label = document.getElementById('af-label').value.trim() || key.replace(/_/g,' ').replace(/\b\w/g,function(c){ return c.toUpperCase(); });
+  if (!key) { showEl('addfeat-err','Feature key is required'); return; }
+  var res = await api('POST', '/api/admin/plan-features', { action: 'add_feature', feature_key: key, label: label });
+  if (!res.ok) { showEl('addfeat-err', res.data.error || 'Failed'); return; }
+  closeAddFeature();
+  flash('plan-ok', 'Feature "' + label + '" added to all plans (disabled by default — toggle on as needed).');
+  loadPlanFeatures();
+}
+
+/* ── Utils ── */
+function showEl(id, msg)  { var e=document.getElementById(id); if(!e) return; e.textContent=msg; e.style.display=''; }
+function hideEl(id)       { var e=document.getElementById(id); if(e) e.style.display='none'; }
+function flash(id, msg)   { var e=document.getElementById(id); if(!e) return; e.textContent=msg; e.style.display=''; setTimeout(function(){ e.style.display='none'; },4000); }
+function esc(s)           { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ── Model toggle active/hidden ── */
+async function toggleModel(id, newState) {
+  var res = await api('PUT', '/api/admin/models/'+id, { active: newState });
+  if (!res.ok) { flash('mod-err', res.data.error||'Update failed'); return; }
+  flash('mod-ok', newState ? 'Model is now visible to users.' : 'Model hidden from users.');
+  loadModels();
+}
+
+/* ── Security tab init ── */
+function initSecurityTab() {
+  // All security features are always active server-side — just display status
+  ['sec-challenge','sec-ratelimit','sec-hwid','sec-jwt'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el){ el.textContent = '✓'; el.style.color = '#4ade80'; }
+  });
+  // Show rate-limited IPs from recent logs
+  var rlList = document.getElementById('rate-limit-list');
+  if (rlList) {
+    api('GET', '/api/admin/logs').then(function(res) {
+      if (!res.ok) { rlList.textContent = 'Could not load logs.'; return; }
+      var logs    = res.data.logs || [];
+      var blocked = logs.filter(function(l){ return l.action === 'rate_limited'; });
+      if (!blocked.length) {
+        rlList.innerHTML = '<span style="color:#4ade80">No rate-limited IPs in recent logs. ✓</span>';
+        return;
+      }
+      var ips = {};
+      blocked.forEach(function(l){ ips[l.ip_addr] = (ips[l.ip_addr]||0)+1; });
+      rlList.innerHTML = Object.keys(ips).map(function(ip){
+        return '<div style="padding:4px 0;border-bottom:1px solid #1e293b">'+
+          '<span style="color:#f87171">'+esc(ip)+'</span>'+
+          ' — <span style="color:#94a3b8">'+ips[ip]+' blocked attempt(s)</span></div>';
+      }).join('');
+    });
+  }
+}
+
+/* ── Override switchTab to init Security tab on first open ── */
+var _secTabInited = false;
+var _origSwitchTab = switchTab;
+switchTab = function(name, btn) {
+  _origSwitchTab(name, btn);
+  if (name === 'security' && !_secTabInited) { _secTabInited = true; initSecurityTab(); }
+};
+
+/* ── Auto-login if token stored ── */
+if (TOKEN) {
+  api('GET', '/api/admin/verify').then(function(res){ res.ok ? showDash() : logout(); });
+}
+
+/* ── AI Credits ── */
+var allWallets = [];
+var allTopups  = [];
+async function loadAiCredits() {
+  var wRes = await api('GET', '/api/admin/ai/wallets');
+  var tRes = await api('GET', '/api/admin/ai/topups');
+  if (wRes.ok) { allWallets = wRes.data.wallets || []; renderWallets(); }
+  if (tRes.ok) { allTopups  = tRes.data.topups  || []; renderTopups(); }
+  updateAiStats();
+}
+function updateAiStats() {
+  document.getElementById('ai-s-users').textContent  = allWallets.length;
+  var tot = allWallets.reduce(function(s,w){ return s+(w.credits||0); },0);
+  var used= allWallets.reduce(function(s,w){ return s+(w.total_used||0); },0);
+  var pend= allTopups.filter(function(t){ return t.status==='pending'; }).length;
+  document.getElementById('ai-s-total').textContent   = tot;
+  document.getElementById('ai-s-used').textContent    = used;
+  document.getElementById('ai-s-pending').textContent = pend;
+  var badge = document.getElementById('ai-pending-badge');
+  badge.textContent = pend + ' pending';
+  badge.style.background = pend > 0 ? '#7c2d12' : '';
+}
+function renderWallets(list) {
+  var rows = list || allWallets;
+  var tbody = document.getElementById('ai-wallet-body');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" style="color:#64748b;text-align:center">No wallets yet.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(function(w, i) {
+    var bar = Math.min(100, Math.round(((w.total_used||0)/Math.max(1,w.total_purchased||1))*100));
+    var bc  = bar>80?'#ef4444':bar>50?'#f59e0b':'#38bdf8';
+    return '<tr>'+
+      '<td style="color:#64748b">'+(i+1)+'</td>'+
+      '<td style="font-weight:600">'+(w.name||'<em style="color:#475569">&#8212;</em>')+'</td>'+
+      '<td style="color:#94a3b8;font-size:.8rem">'+(w.gmail||'')+'</td>'+
+      '<td><strong style="color:#4ade80;font-size:1.05rem">'+(w.credits||0)+'</strong></td>'+
+      '<td style="color:#a5b4fc">'+(w.total_purchased||0)+'</td>'+
+      '<td><span style="color:#f87171">'+(w.total_used||0)+'</span>'+
+        '<div class="dl-bar" style="width:70px;margin-top:3px"><div class="dl-bar-fill" style="width:'+bar+'%;background:'+bc+'"></div></div></td>'+
+      '<td style="color:#64748b;font-size:.75rem">'+(w.created_at||'').split('T')[0]+'</td>'+
+      '<td><button class="btn btn-success" style="font-size:.75rem;padding:3px 10px" onclick="quickAddByIdx('+i+')">+ Credits</button></td>'+
+    '</tr>';
+  }).join('');
+}
+function quickAddByIdx(i) {
+  var w = allWallets[i];
+  if (w) quickAdd(w.gmail);
+}
+
+function filterWallets() {
+  var q = document.getElementById('ai-wallet-search').value.toLowerCase();
+  renderWallets(q ? allWallets.filter(function(w){ return (w.gmail||'').toLowerCase().includes(q)||(w.name||'').toLowerCase().includes(q); }) : null);
+}
+function renderTopups() {
+  var tbody = document.getElementById('ai-topup-body');
+  if (!allTopups.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No topup requests yet.</td></tr>'; return; }
+  tbody.innerHTML = allTopups.map(function(t, i) {
+    var badge = t.status === 'pending'
+      ? '<span class="badge" style="background:#7c2d12;color:#fef3c7">&#8987; Pending</span>'
+      : '<span class="badge" style="background:#14532d;color:#4ade80">&#10003; Approved</span>';
+    var btn = t.status === 'pending'
+      ? '<button class="btn btn-success" style="font-size:.75rem;padding:3px 10px" onclick="approveTopupByIdx(' + 'i' + ')">&#10003; Approve</button>'
+      : '<span style="color:#475569;font-size:.78rem">Done</span>';
+    return '<tr>' +
+      '<td style="color:#94a3b8;font-size:.82rem">'+(t.gmail||'')+'</td>' +
+      '<td><strong style="color:#a5b4fc">'+(t.credits_requested||0)+'</strong> credits</td>' +
+      '<td style="color:#94a3b8;font-size:.8rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(t.note||'&#8212;')+'</td>' +
+      '<td>'+badge+'</td>' +
+      '<td style="color:#64748b;font-size:.75rem">'+(t.created_at||'').replace('T',' ').substring(0,16)+'</td>' +
+      '<td>'+btn.replace('i)', i+')')+'</td>' +
+    '</tr>';
+  }).join('');
+}
+function approveTopupByIdx(i) {
+  var t = allTopups[i];
+  if (t) approveTopup(t.id, t.gmail, t.credits_requested);
+}
+
+async function addCredits() {
+  var gmail  = document.getElementById('ai-add-gmail').value.trim().toLowerCase();
+  var amount = parseInt(document.getElementById('ai-add-amount').value)||0;
+  var note   = document.getElementById('ai-add-note').value.trim()||'Admin credit grant';
+  hideEl('ai-add-err'); hideEl('ai-add-ok');
+  if (!gmail)    { showEl('ai-add-err','Enter a gmail address'); return; }
+  if (amount<1)  { showEl('ai-add-err','Enter a valid amount'); return; }
+  var res = await api('POST','/api/admin/ai/credits/add',{gmail,amount,note});
+  if (!res.ok)   { showEl('ai-add-err',res.data.error||'Failed'); return; }
+  showEl('ai-add-ok','&#10003; Added '+amount+' credits to '+gmail+' &#8594; balance: '+res.data.new_balance);
+  document.getElementById('ai-add-gmail').value='';
+  document.getElementById('ai-add-amount').value='';
+  document.getElementById('ai-add-note').value='';
+  await loadAiCredits();
+}
+function quickAdd(gmail) {
+  document.getElementById('ai-add-gmail').value = gmail;
+  document.getElementById('ai-add-amount').focus();
+  document.querySelector('#tab-aicredits .card').scrollIntoView({behavior:'smooth'});
+}
+async function approveTopup(id, gmail, amount) {
+  if (!confirm('Approve '+amount+' credits for '+gmail+'?')) return;
+  hideEl('ai-topup-err'); hideEl('ai-topup-ok');
+  var res = await api('POST','/api/admin/ai/topups/approve',{id, note:'Admin approved topup'});
+  if (!res.ok) { showEl('ai-topup-err',res.data.error||'Failed'); return; }
+  showEl('ai-topup-ok','&#10003; Approved '+amount+' credits for '+gmail);
+  await loadAiCredits();
+}
+</script>
+</body>
+</html>
