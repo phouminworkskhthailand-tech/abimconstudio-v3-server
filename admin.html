@@ -985,15 +985,34 @@ $('#btnExport').addEventListener('click', async () => {
 $('#lnkTemplate').addEventListener('click', (e) => {
   e.preventDefault();
   const wb = XLSX.utils.book_new();
+  const readme = [
+    ['AbimconStudio Admin — Import Template'],
+    [''],
+    ['HOW TO ADD A USER:'],
+    ['  1. Fill in a new row on the Users sheet (email is required and must be unique).'],
+    ['  2. Leave any cell blank for default (status defaults to active, device_limit to 3).'],
+    ['  3. hwids: either JSON array like ["hwid1","hwid2"] or comma-separated hwid1,hwid2'],
+    ['  4. license_expires_at: YYYY-MM-DD or an Excel date cell.'],
+    ['  5. Save this file, upload on Import/Export, click Apply changes.'],
+    [''],
+    ['VALID VALUES'],
+    ['  admin_role:    admin | editor | viewer'],
+    ['  license_role:  abimcon_pro_max | abimcon_engineer | abimcon_student | abimcon_client'],
+    ['  plan_key:      free | trial | pro_9_9 | pro_39_9 | pro_99_9'],
+    ['  status:        active | suspended | expired | revoked | pending'],
+    [''],
+    ['Upsert: existing rows (by email for Users; by key for Roles/Plans/Settings) are updated. New rows are inserted.'],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), 'README');
   const users = [
-    {email:'abimcon.user01@gmail.com', license_key:'ABIM-4K9L-MN2P-X001', admin_role:'admin',  license_role:'abimcon_pro_max',  plan_key:'pro_9_9', country:'Thailand', country_code:'TH', city:'Bangkok',    lat:13.7563, lon:100.5018},
-    {email:'abimcon.user02@gmail.com', license_key:'ABIM-7R3T-QW5X-X002', admin_role:'editor', license_role:'abimcon_engineer', plan_key:'pro_39_9',country:'Vietnam',  country_code:'VN', city:'Ho Chi Minh',lat:10.8231, lon:106.6297},
-    {email:'abimcon.user03@gmail.com', license_key:'ABIM-1ZBP-HV8C-X003', admin_role:'editor', license_role:'abimcon_student',  plan_key:'free',    country:'Cambodia', country_code:'KH', city:'Phnom Penh', lat:11.5449, lon:104.8922},
+    {email:'newuser01@gmail.com', name:'New User One', license_key:'ABIM-XXXX-YYYY-Z001', admin_role:'viewer', license_role:'abimcon_student', plan_key:'free',    status:'active', license_expires_at:'',           device_limit:3, hwids:'',                                 country:'Thailand', country_code:'TH', city:'Bangkok', lat:13.7563, lon:100.5018},
+    {email:'newuser02@gmail.com', name:'New User Two', license_key:'ABIM-XXXX-YYYY-Z002', admin_role:'editor', license_role:'abimcon_engineer', plan_key:'pro_9_9', status:'active', license_expires_at:'2026-12-31', device_limit:5, hwids:'hw-example-aaaa,hw-example-bbbb', country:'Vietnam',  country_code:'VN', city:'Hanoi',   lat:21.0278, lon:105.8342},
   ];
   const roles = [
     {key:'abimcon_pro_max',  label:'Abimcon_Pro Max',  max_boq_items:'', max_downloads_per_month:'',     max_ai_monthly_credits:'', notes:'Unlimited', active:true},
     {key:'abimcon_engineer', label:'Abimcon_Engineer', max_boq_items:'', max_downloads_per_month:10000,  max_ai_monthly_credits:'', notes:'10k/mo',   active:true},
     {key:'abimcon_student',  label:'Abimcon_Student',  max_boq_items:'', max_downloads_per_month:1000,   max_ai_monthly_credits:'', notes:'1k/mo',    active:true},
+    {key:'abimcon_client',   label:'Abimcon_Client',   max_boq_items:'', max_downloads_per_month:'',     max_ai_monthly_credits:'', notes:'Legacy client', active:true},
   ];
   const plans = [
     {key:'free',    label:'Free',           price_usd:0,     monthly_credits:240,   one_time:true,  active:true, description:'240 credits on signup'},
@@ -1006,7 +1025,7 @@ $('#lnkTemplate').addEventListener('click', (e) => {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(roles), 'License_Roles');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(plans), 'Plans');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
-    {key:'feature.ai_assistant_enabled', value:'true', description:'Kill switch for AI'},
+    {key:'feature.ai_assistant_enabled',    value:'true', description:'Kill switch for AI'},
     {key:'feature.model_downloads_enabled', value:'true', description:'Kill switch for downloads'},
   ]), 'Settings');
   XLSX.writeFile(wb, 'admin_users_template.xlsx');
@@ -1025,6 +1044,26 @@ $('#btnImport').addEventListener('click', async () => {
     for(const r of rows){
       try{
         const clean = {...r};
+        Object.keys(clean).forEach(k => { if(clean[k]==='') clean[k] = null; });
+        if(table === 'user_profiles'){
+          if(clean.hwids != null){
+            if(typeof clean.hwids === 'string'){
+              const s = clean.hwids.trim();
+              if(s.startsWith('[')){ try{ clean.hwids = JSON.parse(s); }catch(e){ clean.hwids = []; } }
+              else { clean.hwids = s.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean); }
+            }
+            if(!Array.isArray(clean.hwids)) clean.hwids = [];
+          }
+          if(clean.license_expires_at instanceof Date){
+            clean.license_expires_at = clean.license_expires_at.toISOString().slice(0,10);
+          } else if(typeof clean.license_expires_at === 'number'){
+            const d = new Date(Math.round((clean.license_expires_at - 25569) * 86400 * 1000));
+            clean.license_expires_at = d.toISOString().slice(0,10);
+          }
+          if(clean.device_limit != null && clean.device_limit !== '') clean.device_limit = parseInt(clean.device_limit, 10) || 0;
+          ['lat','lon'].forEach(k => { if(clean[k]!=null && clean[k]!=='') clean[k] = +clean[k]; });
+          if(!clean.status) clean.status = 'active';
+        }
         Object.keys(clean).forEach(k => { if(clean[k]==='') clean[k] = null; });
         if(table==='app_settings' && clean.value && typeof clean.value==='string'){
           try{ clean.value = JSON.parse(clean.value); }catch(e){}
