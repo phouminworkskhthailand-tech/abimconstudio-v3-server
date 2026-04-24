@@ -11,7 +11,7 @@
     https://github.com/phouminworkskhthailand-tech/abimconstudio-v3-server
 
   What this page does:
-    - Password-gate (matches existing admin password 'abimcon_admin_2026').
+    - Password-gate (matches existing admin password '22224252').
     - Loads license_roles / plans / user_profiles / usage_events from Supabase
       using the anon key. For PRO-only (write) actions the page falls back to
       the /api/admin/* endpoints on your Railway server (service-role stays
@@ -135,7 +135,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
 
 <!-- ═════════ LOGIN GATE ═════════ -->
 <div id="gate">
-  <form class="card" id="gateForm" onsubmit="return (function(e){e.preventDefault();var pw=document.getElementById(&quot;gatePw&quot;);var err=document.getElementById(&quot;gateErr&quot;);if(pw.value===&quot;abimcon_admin_2026&quot;){sessionStorage.setItem(&quot;abd_admin_unlocked&quot;,&quot;1&quot;);document.getElementById(&quot;gate&quot;).classList.add(&quot;hidden&quot;);document.getElementById(&quot;app&quot;).classList.remove(&quot;hidden&quot;);return false;}else{err.textContent=&quot;Wrong password.&quot;;pw.value=&quot;&quot;;return false;}})(event);">
+  <form class="card" id="gateForm" onsubmit="return (function(e){e.preventDefault();var pw=document.getElementById(&quot;gatePw&quot;);var err=document.getElementById(&quot;gateErr&quot;);if(pw.value===&quot;22224252&quot;){sessionStorage.setItem(&quot;abd_admin_unlocked&quot;,&quot;1&quot;);document.getElementById(&quot;gate&quot;).classList.add(&quot;hidden&quot;);document.getElementById(&quot;app&quot;).classList.remove(&quot;hidden&quot;);return false;}else{err.textContent=&quot;Wrong password.&quot;;pw.value=&quot;&quot;;return false;}})(event);">
     <h1>AbimconStudio Admin</h1>
     <p>Enter admin password to continue.</p>
     <input type="password" id="gatePw" autocomplete="current-password" placeholder="admin password" autofocus>
@@ -186,7 +186,13 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
     <section class="view hidden" data-view="map">
       <div class="hdr">
         <h1>User Map</h1>
-        <div class="sub">Each pin = one user's last-known city (grouped by lat/lon).</div>
+        <div class="sub">Type a Gmail and press Enter to fly the map to that user.</div>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input class="search" id="mapSearch" placeholder="Search user by email (e.g. someone@gmail.com)" style="max-width:420px">
+        <button class="btn primary" id="mapSearchGo">→ Find</button>
+        <button class="btn" id="mapResetView" title="Zoom out to world">↺ Reset</button>
+        <span id="mapSearchInfo" class="muted" style="margin-left:8px"></span>
       </div>
       <div class="card" style="padding:0"><div id="map"></div></div>
       <div class="card"><h3>By City (top 20)</h3>
@@ -347,7 +353,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
   const gate = document.getElementById("gate");
   const app = document.getElementById("app");
   if(!form) return;
-  const ADMIN_PASSWORD = "abimcon_admin_2026";
+  const ADMIN_PASSWORD = "22224252";
   function unlock(){
     sessionStorage.setItem("abd_admin_unlocked","1");
     gate.classList.add("hidden");
@@ -376,7 +382,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ═════════ CONFIG — REPLACE IN PRODUCTION ═════════
 const SUPABASE_URL  = 'https://zlpkqyxenzexbfnnvaor.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpscGtxeXhlbnpleGJmbm52YW9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NTYxNDksImV4cCI6MjA5MDIzMjE0OX0.lzgMLWf6aGE5xMAmm8d5wL6vnL5Bw_FlVES30L541aA';
-const ADMIN_PASSWORD = 'abimcon_admin_2026';
+const ADMIN_PASSWORD = '22224252';
 // For writes the page calls your existing Railway backend which already holds
 // the service-role key. If the /api/admin/* route isn't ready yet, writes
 // fall back to direct Supabase (requires RLS policy or service-role JWT).
@@ -565,6 +571,56 @@ async function loadMap(){
     ? list.map(c => '<tr><td>'+esc(c.country||'—')+'</td><td>'+esc(c.city||'—')+'</td><td class="right">'+c.n+'</td></tr>').join('')
     : '<tr><td colspan="3" class="muted">No geo data yet.</td></tr>';
 }
+
+// ───── Map email search ─────
+async function findUserOnMap(q){
+  q = (q||"").trim().toLowerCase();
+  const info = document.getElementById("mapSearchInfo");
+  if(!q){ info.textContent = ""; return; }
+  if(!_allUsers || !_allUsers.length){
+    try { await loadUsers(); } catch(e) {}
+  }
+  let u = (_allUsers||[]).find(x => (x.email||"").toLowerCase() === q);
+  if(!u) u = (_allUsers||[]).find(x => (x.email||"").toLowerCase().includes(q));
+  if(!u){ info.innerHTML = "<span style=\"color:var(--danger)\">User not found.</span>"; return; }
+  if(u.lat==null || u.lon==null){
+    info.innerHTML = "<span style=\"color:var(--warn)\">Found "+esc(u.email)+" but no geo data yet.</span>";
+    return;
+  }
+  if(!_map){ info.textContent = "Map not ready."; return; }
+  _map.flyTo([+u.lat, +u.lon], 10, {duration:1.2});
+  if(window._mapSearchPin){ try{ _map.removeLayer(window._mapSearchPin); }catch(e){} }
+  const pin = L.circleMarker([+u.lat, +u.lon], {
+    radius: 10, color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.9, weight: 3
+  }).addTo(_map);
+  const expiry = u.license_expires_at ? esc(u.license_expires_at) : "—";
+  const status = esc(u.status||"active");
+  const city   = esc(u.city||"?");
+  const country= esc(u.country||"?");
+  const plan   = esc(u.plan_key||"—");
+  pin.bindPopup(
+    "<b>"+esc(u.email)+"</b><br>"+
+    "📍 " + city + ", " + country + "<br>"+
+    "Plan: " + plan + "  ·  Status: " + status + "<br>"+
+    "Expiry: " + expiry
+  , { autoClose:false }).openPopup();
+  window._mapSearchPin = pin;
+  info.innerHTML = "✓ Zoomed to <b>"+esc(u.email)+"</b> — "+city+", "+country+".";
+}
+function resetMapView(){
+  const info = document.getElementById("mapSearchInfo");
+  if(info) info.textContent = "";
+  if(window._mapSearchPin){ try{ _map.removeLayer(window._mapSearchPin); }catch(e){} window._mapSearchPin = null; }
+  if(_map) _map.setView([20, 0], 2);
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const s = document.getElementById("mapSearch");
+  const g = document.getElementById("mapSearchGo");
+  const r = document.getElementById("mapResetView");
+  if(s) s.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); findUserOnMap(s.value); } });
+  if(g) g.addEventListener("click", () => findUserOnMap(document.getElementById("mapSearch").value));
+  if(r) r.addEventListener("click", resetMapView);
+});
 
 // ───── Users ─────
 let _allUsers = [];
