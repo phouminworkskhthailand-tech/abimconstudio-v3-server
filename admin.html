@@ -1,8 +1,8 @@
-—<!doctype html>
+â<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>AbimconStudio — Admin Panel</title>
+<title>AbimconStudio â Admin Panel</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <!--
   AbimconStudio Admin Dashboard v2 (H-15.36+)
@@ -15,7 +15,7 @@
     - Loads license_roles / plans / user_profiles / usage_events from Supabase
       using the anon key. For PRO-only (write) actions the page falls back to
       the /api/admin/* endpoints on your Railway server (service-role stays
-      on the backend — do NOT paste the service-role key here).
+      on the backend â do NOT paste the service-role key here).
     - Shows:
         * World map of users by city (Leaflet + OpenStreetMap tiles)
         * Country / city summary table
@@ -30,7 +30,7 @@
   Deps (all from public CDNs, no build step):
     - supabase-js        https://esm.sh/@supabase/supabase-js@2
     - Leaflet 1.9        https://unpkg.com/leaflet@1.9.4/
-    - SheetJS 0.20       https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js
+    - SheetJS 0.20       https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js
 
   Replace these constants for your environment:
 -->
@@ -126,14 +126,14 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
 .toast.ok{border-left-color:var(--accent2)}
 </style>
 
-<!-- Leaflet CSS — for the world map -->
+<!-- Leaflet CSS â for the world map -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 
 </head>
 <body>
 
-<!-- ═════════ LOGIN GATE ═════════ -->
+<!-- âââââââââ LOGIN GATE âââââââââ -->
 <div id="gate">
   <form class="card" id="gateForm" onsubmit="return (function(e){e.preventDefault();var pw=document.getElementById(&quot;gatePw&quot;);var err=document.getElementById(&quot;gateErr&quot;);if(pw.value===&quot;22224252&quot;){sessionStorage.setItem(&quot;abd_admin_unlocked&quot;,&quot;1&quot;);document.getElementById(&quot;gate&quot;).classList.add(&quot;hidden&quot;);document.getElementById(&quot;app&quot;).classList.remove(&quot;hidden&quot;);return false;}else{err.textContent=&quot;Wrong password.&quot;;pw.value=&quot;&quot;;return false;}})(event);">
     <h1>AbimconStudio Admin</h1>
@@ -144,21 +144,21 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
   </form>
 </div>
 
-<!-- ═════════ APP SHELL ═════════ -->
+<!-- âââââââââ APP SHELL âââââââââ -->
 <div id="app" class="hidden">
   <nav id="sidebar">
     <h2>AbimconStudio</h2>
     <div class="nav" id="nav">
-      <button data-view="overview" class="active"><span class="ic">📊</span>Overview</button>
-      <button data-view="map"><span class="ic">🌍</span>User Map</button>
-      <button data-view="users"><span class="ic">👤</span>Users</button>
-      <button data-view="roles"><span class="ic">🎫</span>License Roles</button>
-      <button data-view="plans"><span class="ic">💳</span>Plans &amp; Credits</button>
-      <button data-view="usage"><span class="ic">📈</span>Usage Events</button>
-      <button data-view="settings"><span class="ic">⚙️</span>Settings</button>
-      <button data-view="io"><span class="ic">📥</span>Import / Export</button>
+      <button data-view="overview" class="active"><span class="ic">ð</span>Overview</button>
+      <button data-view="map"><span class="ic">ð</span>User Map</button>
+      <button data-view="users"><span class="ic">ð¤</span>Users</button>
+      <button data-view="roles"><span class="ic">ð«</span>License Roles</button>
+      <button data-view="plans"><span class="ic">ð³</span>Plans &amp; Credits</button>
+      <button data-view="usage"><span class="ic">ð</span>Usage Events</button>
+      <button data-view="settings"><span class="ic">âï¸</span>Settings</button>
+      <button data-view="io"><span class="ic">ð¥</span>Import / Export</button>
       <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px"></div>
-      <button data-view="classic" title="Legacy v1 admin (Licenses / Models / Activity / Security / AI Credits / Wallets)"><span class="ic">🧰</span>Classic v1</button>
+      <button data-view="classic" title="Legacy v1 admin (Licenses / Models / Activity / Security / AI Credits / Wallets)"><span class="ic">ð§°</span>Classic v1</button>
     </div>
     <div class="who">
       <b>admin</b><br>
@@ -190,8 +190,8 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
       </div>
       <div class="row" style="margin-bottom:8px">
         <input class="search" id="mapSearch" placeholder="Search user by email (e.g. someone@gmail.com)" style="max-width:420px">
-        <button class="btn primary" id="mapSearchGo">→ Find</button>
-        <button class="btn" id="mapResetView" title="Zoom out to world">↺ Reset</button>
+        <button class="btn primary" id="mapSearchGo">â Find</button>
+        <button class="btn" id="mapResetView" title="Zoom out to world">âº Reset</button>
         <span id="mapSearchInfo" class="muted" style="margin-left:8px"></span>
       </div>
       <div class="card" style="padding:0"><div id="map"></div></div>
@@ -206,7 +206,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
         <h1>Users</h1>
         <div class="btns">
           <input class="search" id="userSearch" placeholder="Search email / license key / city">
-          <button class="btn" id="btnAddUser">➕ Add user</button>
+          <button class="btn" id="btnAddUser">â Add user</button>
         </div>
       </div>
       <div class="card" style="padding:0;overflow:auto">
@@ -237,9 +237,9 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
       </div>
       <div class="card"><h3>Spec (defaults from your brief)</h3>
         <div class="muted" style="line-height:1.7">
-          <b>Abimcon_Pro Max</b> — all functions unlimited.<br>
-          <b>Abimcon_Engineer</b> — all functions, 10,000 downloads / month.<br>
-          <b>Abimcon_Student</b> — all functions, 1,000 downloads / month.
+          <b>Abimcon_Pro Max</b> â all functions unlimited.<br>
+          <b>Abimcon_Engineer</b> â all functions, 10,000 downloads / month.<br>
+          <b>Abimcon_Student</b> â all functions, 1,000 downloads / month.
         </div>
       </div>
     </section>
@@ -311,14 +311,14 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
         <div class="card">
           <h3>Export</h3>
           <p class="muted">Download a workbook with one sheet per table (Users / License_Roles / Plans / Settings). Open, edit, re-import.</p>
-          <button class="btn primary" id="btnExport">⬇️  Download admin_export.xlsx</button>
-          <div style="margin-top:10px"><a class="muted" id="lnkTemplate" href="#">📎 Download blank template (admin_users_template.xlsx)</a></div>
+          <button class="btn primary" id="btnExport">â¬ï¸  Download admin_export.xlsx</button>
+          <div style="margin-top:10px"><a class="muted" id="lnkTemplate" href="#">ð Download blank template (admin_users_template.xlsx)</a></div>
         </div>
         <div class="card">
           <h3>Import</h3>
           <p class="muted">Pick an .xlsx exported from this panel (or matching the template) and apply changes.</p>
           <input type="file" id="importFile" accept=".xlsx,.xls" style="color:var(--muted)">
-          <div style="margin-top:10px"><button class="btn ok" id="btnImport">✅  Apply changes</button></div>
+          <div style="margin-top:10px"><button class="btn ok" id="btnImport">â  Apply changes</button></div>
           <div id="importLog" class="mono muted" style="margin-top:10px;white-space:pre-wrap;max-height:180px;overflow:auto"></div>
         </div>
       </div>
@@ -326,10 +326,10 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
     <!-- CLASSIC V1 (legacy admin, loaded in iframe) -->
     <section class="view hidden" data-view="classic" style="flex:1;min-height:0;display:flex;flex-direction:column;padding:0;gap:0">
       <div class="hdr" style="padding:0 0 12px 0">
-        <h1>🧰 Classic v1 Admin</h1>
+        <h1>ð§° Classic v1 Admin</h1>
         <div class="btns">
-          <button class="btn" id="btnV1Reload" title="Reload v1">↻ Reload</button>
-          <a class="btn" id="lnkV1NewTab" target="_blank" rel="noopener" title="Open in new tab">↗ New tab</a>
+          <button class="btn" id="btnV1Reload" title="Reload v1">â» Reload</button>
+          <a class="btn" id="lnkV1NewTab" target="_blank" rel="noopener" title="Open in new tab">â New tab</a>
         </div>
       </div>
       <iframe id="v1frame" style="flex:1;min-height:calc(100vh - 90px);width:100%;border:1px solid var(--line);border-radius:var(--radius);background:#fff" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"></iframe>
@@ -338,13 +338,13 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
   </main>
 </div>
 
-<!-- ═════════ DEPS ═════════ -->
+<!-- âââââââââ DEPS âââââââââ -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
 <script>
-// Sync gate unlock — runs BEFORE the module import so the form does not
+// Sync gate unlock â runs BEFORE the module import so the form does not
 // do a native submit before the modules handler attaches.
 (function(){
   const form = document.getElementById("gateForm");
@@ -379,7 +379,7 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ═════════ CONFIG — REPLACE IN PRODUCTION ═════════
+// âââââââââ CONFIG â REPLACE IN PRODUCTION âââââââââ
 const SUPABASE_URL  = 'https://zlpkqyxenzexbfnnvaor.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpscGtxeXhlbnpleGJmbm52YW9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NTYxNDksImV4cCI6MjA5MDIzMjE0OX0.lzgMLWf6aGE5xMAmm8d5wL6vnL5Bw_FlVES30L541aA';
 const ADMIN_PASSWORD = '22224252';
@@ -391,7 +391,7 @@ const API_BASE = window.location.origin;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON, { auth:{persistSession:false} });
 window._sb = sb; // handy for console debugging
 
-// ═════════ Gate ═════════
+// âââââââââ Gate âââââââââ
 const gate   = document.getElementById('gate');
 const gateF  = document.getElementById('gateForm');
 const gatePw = document.getElementById('gatePw');
@@ -423,7 +423,7 @@ document.getElementById('btnLogout').addEventListener('click', () => {
 });
 tryUnlock();
 
-// ═════════ UI helpers ═════════
+// âââââââââ UI helpers âââââââââ
 const $  = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => [...root.querySelectorAll(sel)];
 function toast(msg, kind=''){
@@ -451,7 +451,7 @@ $$('#nav button').forEach(b => b.addEventListener('click', () => {
   if(v === 'settings') loadSettings();
 }));
 
-// ═════════ Data loaders ═════════
+// âââââââââ Data loaders âââââââââ
 async function boot(){
   try{
     const { data, error } = await sb.from('plans').select('key').limit(1);
@@ -520,17 +520,17 @@ function daysAgoIso(n){ const d = new Date(Date.now()-n*86400000); return d.toIS
 function planPill(k){
   const m = {free:'free',trial:'trial'};
   const cls = (k||'').startsWith('pro_') ? 'pro' : (m[k]||'neutral');
-  return '<span class="pill '+cls+'">'+esc(k||'—')+'</span>';
+  return '<span class="pill '+cls+'">'+esc(k||'â')+'</span>';
 }
-function rolePill(k){ return k ? '<span class="pill neutral">'+esc(k)+'</span>' : '<span class="muted">—</span>'; }
+function rolePill(k){ return k ? '<span class="pill neutral">'+esc(k)+'</span>' : '<span class="muted">â</span>'; }
 
-// ───── Map ─────
+// âââââ Map âââââ
 let _map, _markers;
 function ensureMap(){
   if(_map){ _map.invalidateSize(); return loadMap(); }
   _map = L.map('map', { worldCopyJump:true, preferCanvas:true }).setView([15, 30], 2);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution:'© OpenStreetMap', maxZoom:18
+    attribution:'Â© OpenStreetMap', maxZoom:18
   }).addTo(_map);
   _markers = L.layerGroup().addTo(_map);
   loadMap();
@@ -568,11 +568,11 @@ async function loadMap(){
   });
   const list = Object.values(cities).sort((a,b)=>b.n-a.n).slice(0,20);
   $('#mapCityTbl tbody').innerHTML = list.length
-    ? list.map(c => '<tr><td>'+esc(c.country||'—')+'</td><td>'+esc(c.city||'—')+'</td><td class="right">'+c.n+'</td></tr>').join('')
+    ? list.map(c => '<tr><td>'+esc(c.country||'â')+'</td><td>'+esc(c.city||'â')+'</td><td class="right">'+c.n+'</td></tr>').join('')
     : '<tr><td colspan="3" class="muted">No geo data yet.</td></tr>';
 }
 
-// ───── Map email search ─────
+// âââââ Map email search âââââ
 async function findUserOnMap(q){
   q = (q||"").trim().toLowerCase();
   const info = document.getElementById("mapSearchInfo");
@@ -593,19 +593,19 @@ async function findUserOnMap(q){
   const pin = L.circleMarker([+u.lat, +u.lon], {
     radius: 10, color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.9, weight: 3
   }).addTo(_map);
-  const expiry = u.license_expires_at ? esc(u.license_expires_at) : "—";
+  const expiry = u.license_expires_at ? esc(u.license_expires_at) : "â";
   const status = esc(u.status||"active");
   const city   = esc(u.city||"?");
   const country= esc(u.country||"?");
-  const plan   = esc(u.plan_key||"—");
+  const plan   = esc(u.plan_key||"â");
   pin.bindPopup(
     "<b>"+esc(u.email)+"</b><br>"+
-    "📍 " + city + ", " + country + "<br>"+
-    "Plan: " + plan + "  ·  Status: " + status + "<br>"+
+    "ð " + city + ", " + country + "<br>"+
+    "Plan: " + plan + "  Â·  Status: " + status + "<br>"+
     "Expiry: " + expiry
   , { autoClose:false }).openPopup();
   window._mapSearchPin = pin;
-  info.innerHTML = "✓ Zoomed to <b>"+esc(u.email)+"</b> — "+city+", "+country+".";
+  info.innerHTML = "â Zoomed to <b>"+esc(u.email)+"</b> â "+city+", "+country+".";
 }
 function resetMapView(){
   const info = document.getElementById("mapSearchInfo");
@@ -622,7 +622,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if(r) r.addEventListener("click", resetMapView);
 });
 
-// ───── Users ─────
+// âââââ Users âââââ
 let _allUsers = [];
 async function loadUsers(){
   let { data, error } = await sb.from('v_admin_users').select('*').order('created_at', {ascending:false}).limit(2000);
@@ -645,7 +645,7 @@ function statusPill(s){
   return '<span class="pill '+(map[s]||'neutral')+'">'+esc(s)+'</span>';
 }
 function expiryCell(d){
-  if(!d) return '<span class="muted">—</span>';
+  if(!d) return '<span class="muted">â</span>';
   const today = new Date(); today.setHours(0,0,0,0);
   const due = new Date(d+'T00:00:00Z');
   const days = Math.round((due - today) / 86400000);
@@ -673,14 +673,14 @@ function renderUsers(){
       +'<td>'+statusPill(u.status)+'</td>'
       +'<td>'+expiryCell(u.license_expires_at)+'</td>'
       +'<td><span style="color:var(--'+devCls+')">'+devBar+'</span></td>'
-      +'<td><button class="btn" data-act="view-hwids" title="View/edit HWIDs">'+hwN+' ▸</button></td>'
+      +'<td><button class="btn" data-act="view-hwids" title="View/edit HWIDs">'+hwN+' â¸</button></td>'
       +'<td class="muted">'+fmtDate(u.last_seen_at)+'</td>'
       +'<td class="right" style="white-space:nowrap">'
-        +'<button class="btn" data-act="edit-user" title="Edit">✎</button> '
-        +'<button class="btn" data-act="toggle-suspend" title="'+(u.status==='suspended'?'Activate':'Suspend')+'">'+(u.status==='suspended'?'✓':'⊘')+'</button> '
+        +'<button class="btn" data-act="edit-user" title="Edit">â</button> '
+        +'<button class="btn" data-act="toggle-suspend" title="'+(u.status==='suspended'?'Activate':'Suspend')+'">'+(u.status==='suspended'?'â':'â')+'</button> '
         +'<button class="btn" data-act="extend" title="Extend +1 month">+30d</button> '
-        +'<button class="btn" data-act="reset-hwids" title="Reset devices">↻</button> '
-        +'<button class="btn danger" data-act="del-user" title="Delete">✕</button>'
+        +'<button class="btn" data-act="reset-hwids" title="Reset devices">â»</button> '
+        +'<button class="btn danger" data-act="del-user" title="Delete">â</button>'
       +'</td>'
       +'</tr>';
   }).join('') || '<tr><td colspan="10" class="muted">No users.</td></tr>';
@@ -701,7 +701,7 @@ async function toggleSuspend(email){
   const next = (u.status === 'suspended') ? 'active' : 'suspended';
   const { error } = await sb.from('user_profiles').update({status: next}).eq('email', email);
   if(error) return toast('Status update failed: '+error.message,'err');
-  toast('Status → '+next, 'ok'); loadUsers();
+  toast('Status â '+next, 'ok'); loadUsers();
 }
 async function extendExpiry(email, days){
   const u = _allUsers.find(x => x.email === email); if(!u) return;
@@ -710,7 +710,7 @@ async function extendExpiry(email, days){
   const iso = base.toISOString().slice(0,10);
   const { error } = await sb.from('user_profiles').update({license_expires_at: iso, status:'active'}).eq('email', email);
   if(error) return toast('Extend failed: '+error.message,'err');
-  toast('Expiry → '+iso, 'ok'); loadUsers();
+  toast('Expiry â '+iso, 'ok'); loadUsers();
 }
 async function resetHwids(email){
   if(!confirm('Clear all registered HWIDs for '+email+'?')) return;
@@ -829,7 +829,7 @@ $('#btnAddUser').addEventListener('click', async () => {
   }catch(e){ toast(e.message,'err'); }
 });
 
-// ───── Roles ─────
+// âââââ Roles âââââ
 async function loadRoles(){
   const { data, error } = await sb.from('license_roles').select('*').order('label');
   if(error){ toast(error.message,'err'); return; }
@@ -868,7 +868,7 @@ async function roleClick(e){
 }
 function num(v){ if(v==='' || v==null) return null; const n = parseInt(v,10); return isNaN(n)?null:n; }
 
-// ───── Plans ─────
+// âââââ Plans âââââ
 async function loadPlans(){
   const { data, error } = await sb.from('plans').select('*').order('price_usd');
   if(error){ toast(error.message,'err'); return; }
@@ -913,7 +913,7 @@ $('#btnRunRefresh').addEventListener('click', async () => {
   }catch(e){ toast(e.message,'err'); }
 });
 
-// ───── Usage ─────
+// âââââ Usage âââââ
 async function loadUsage(){
   const kind = $('#usageKind').value;
   let q = sb.from('usage_events').select('*').order('created_at', {ascending:false}).limit(300);
@@ -935,7 +935,7 @@ async function loadUsage(){
 $('#btnReloadUsage').addEventListener('click', loadUsage);
 $('#usageKind').addEventListener('change', loadUsage);
 
-// ───── Settings ─────
+// âââââ Settings âââââ
 async function loadSettings(){
   const { data, error } = await sb.from('app_settings').select('*').order('key');
   if(error){ toast(error.message,'err'); return; }
@@ -964,7 +964,7 @@ async function settingsClick(e){
   }catch(e){ toast(e.message,'err'); }
 }
 
-// ───── Import / Export ─────
+// âââââ Import / Export âââââ
 $('#btnExport').addEventListener('click', async () => {
   try{
     const [U,R,P,S] = await Promise.all([
@@ -986,7 +986,7 @@ $('#lnkTemplate').addEventListener('click', (e) => {
   e.preventDefault();
   const wb = XLSX.utils.book_new();
   const readme = [
-    ['AbimconStudio Admin — Import Template'],
+    ['AbimconStudio Admin â Import Template'],
     [''],
     ['HOW TO ADD A USER:'],
     ['  1. Fill in a new row on the Users sheet (email is required and must be unique).'],
@@ -1071,7 +1071,7 @@ $('#btnImport').addEventListener('click', async () => {
         const { error } = await sb.from(table).upsert(clean, { onConflict: pk });
         if(error) throw error;
         updates++;
-      }catch(e){ errors++; log.textContent += '  ✗ '+table+' '+(r[pk]||'')+': '+e.message+'\n'; }
+      }catch(e){ errors++; log.textContent += '  â '+table+' '+(r[pk]||'')+': '+e.message+'\n'; }
     }
   }
   if(wb.Sheets.License_Roles){
@@ -1098,7 +1098,7 @@ $('#btnImport').addEventListener('click', async () => {
   toast('Import complete: '+updates+' rows', errors?'err':'ok');
 });
 
-// ───── Modal ─────
+// âââââ Modal âââââ
 function modal(title, bodyHtml, okText='Save'){
   return new Promise(resolve => {
     const bg = document.createElement('div');
@@ -1120,16 +1120,16 @@ function modal(title, bodyHtml, okText='Save'){
 }
 
 
-// Classic v1 admin — loads admin_v1.html from GitHub raw into a sandboxed
+// Classic v1 admin â loads admin_v1.html from GitHub raw into a sandboxed
 // iframe so all legacy tabs (Licenses / Models / Activity / Plans / Security /
 // AI Credits / Wallets) keep working. The iframe is same-origin-ish because
-// srcdoc inherits the parent origin — fetches to /api/admin/* reach Railway.
+// srcdoc inherits the parent origin â fetches to /api/admin/* reach Railway.
 let _v1Html = null;
 async function _loadClassicV1(){
   const st = document.getElementById('v1Status');
   const frame = document.getElementById('v1frame');
   if (!_v1Html) {
-    st.textContent = 'Fetching v1 from GitHub…';
+    st.textContent = 'Fetching v1 from GitHubâ¦';
     try {
       const r = await fetch('https://raw.githubusercontent.com/phouminworkskhthailand-tech/abimconstudio-v3-server/main/admin_v1.html', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
