@@ -1,4 +1,4 @@
-<!doctype html>
+—<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -205,8 +205,9 @@ td input:focus,td select:focus{border-color:var(--accent);outline:none}
       </div>
       <div class="card" style="padding:0;overflow:auto">
         <table id="userTbl"><thead><tr>
-          <th>Email</th><th>License Key</th><th>Admin role</th><th>License role</th>
-          <th>Plan</th><th>Credits</th><th>Country</th><th>City</th><th>Last seen</th><th></th>
+          <th>Email</th><th>License Key</th><th>Role</th><th>Plan</th>
+          <th>Status</th><th>Expiry</th><th>Devices</th><th>HWIDs</th>
+          <th>Last Login</th><th class="right">Actions</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </section>
@@ -568,36 +569,122 @@ async function loadMap(){
 // ───── Users ─────
 let _allUsers = [];
 async function loadUsers(){
-  const { data, error } = await sb.from('user_profiles').select('*, credit_balances(balance)').order('created_at', {ascending:false}).limit(2000);
-  if(error){ toast('Users query failed: '+error.message,'err'); return; }
+  let { data, error } = await sb.from('v_admin_users').select('*').order('created_at', {ascending:false}).limit(2000);
+  if(error){
+    const r2 = await sb.from('user_profiles').select('*, credit_balances(balance)').order('created_at', {ascending:false}).limit(2000);
+    if(r2.error){ toast('Users query failed: '+r2.error.message,'err'); return; }
+    data = (r2.data||[]).map(u => Object.assign({}, u, {
+      credits_balance: (u.credit_balances && u.credit_balances.balance) || 0,
+      hwid_count: Array.isArray(u.hwids) ? u.hwids.length : 0,
+      downloads_today: 0
+    }));
+  }
   _allUsers = data||[];
   renderUsers();
 }
 $('#userSearch').addEventListener('input', renderUsers);
+function statusPill(s){
+  s = (s||'active').toLowerCase();
+  const map = {active:'pro', suspended:'free', expired:'admin', revoked:'admin', pending:'trial'};
+  return '<span class="pill '+(map[s]||'neutral')+'">'+esc(s)+'</span>';
+}
+function expiryCell(d){
+  if(!d) return '<span class="muted">—</span>';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(d+'T00:00:00Z');
+  const days = Math.round((due - today) / 86400000);
+  let cls = 'muted';
+  if(days < 0)      cls = 'danger';
+  else if(days<=7)  cls = 'warn';
+  else if(days<=30) cls = 'accent2';
+  const when = (days<0) ? (-days+' d overdue') : (days===0 ? 'today' : (days+' d'));
+  return '<span style="color:var(--'+cls+')">'+esc(d)+'</span>'
+       + ' <span class="muted" style="font-size:10.5px">('+when+')</span>';
+}
 function renderUsers(){
   const q = $('#userSearch').value.toLowerCase().trim();
-  const rows = _allUsers.filter(u => !q || [u.email,u.license_key,u.city,u.country].some(v => (v||'').toLowerCase().includes(q)));
+  const rows = _allUsers.filter(u => !q || [u.email,u.license_key,u.city,u.country,u.status].some(v => (v||'').toLowerCase().includes(q)));
   $('#userTbl tbody').innerHTML = rows.map(u => {
-    const bal = (u.credit_balances && u.credit_balances.balance!=null) ? u.credit_balances.balance : 0;
+    const hwN = u.hwid_count || 0;
+    const lim = u.device_limit || 0;
+    const devBar = lim>0 ? (hwN+' / '+lim) : String(hwN);
+    const devCls = (lim>0 && hwN>=lim) ? 'warn' : (hwN===0 ? 'muted' : 'accent2');
     return '<tr data-email="'+esc(u.email)+'">'
       +'<td>'+esc(u.email)+'</td>'
       +'<td class="mono">'+esc(u.license_key||'')+'</td>'
-      +'<td><span class="pill '+esc(u.admin_role||'viewer')+'">'+esc(u.admin_role||'viewer')+'</span></td>'
       +'<td>'+rolePill(u.license_role)+'</td>'
       +'<td>'+planPill(u.plan_key)+'</td>'
-      +'<td class="right">'+bal.toLocaleString()+'</td>'
-      +'<td>'+esc(u.country||'')+'</td>'
-      +'<td>'+esc(u.city||'')+'</td>'
+      +'<td>'+statusPill(u.status)+'</td>'
+      +'<td>'+expiryCell(u.license_expires_at)+'</td>'
+      +'<td><span style="color:var(--'+devCls+')">'+devBar+'</span></td>'
+      +'<td><button class="btn" data-act="view-hwids" title="View/edit HWIDs">'+hwN+' ▸</button></td>'
       +'<td class="muted">'+fmtDate(u.last_seen_at)+'</td>'
-      +'<td><button class="btn" data-act="edit-user">Edit</button></td>'
+      +'<td class="right" style="white-space:nowrap">'
+        +'<button class="btn" data-act="edit-user" title="Edit">✎</button> '
+        +'<button class="btn" data-act="toggle-suspend" title="'+(u.status==='suspended'?'Activate':'Suspend')+'">'+(u.status==='suspended'?'✓':'⊘')+'</button> '
+        +'<button class="btn" data-act="extend" title="Extend +1 month">+30d</button> '
+        +'<button class="btn" data-act="reset-hwids" title="Reset devices">↻</button> '
+        +'<button class="btn danger" data-act="del-user" title="Delete">✕</button>'
+      +'</td>'
       +'</tr>';
   }).join('') || '<tr><td colspan="10" class="muted">No users.</td></tr>';
 }
 $('#userTbl').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-act]'); if(!btn) return;
   const tr = btn.closest('tr'); const email = tr.dataset.email;
-  if(btn.dataset.act === 'edit-user') openUserEditor(email);
+  const act = btn.dataset.act;
+  if(act === 'edit-user')       return openUserEditor(email);
+  if(act === 'view-hwids')      return openHwidsEditor(email);
+  if(act === 'toggle-suspend')  return toggleSuspend(email);
+  if(act === 'extend')          return extendExpiry(email, 30);
+  if(act === 'reset-hwids')     return resetHwids(email);
+  if(act === 'del-user')        return deleteUser(email);
 });
+async function toggleSuspend(email){
+  const u = _allUsers.find(x => x.email === email); if(!u) return;
+  const next = (u.status === 'suspended') ? 'active' : 'suspended';
+  const { error } = await sb.from('user_profiles').update({status: next}).eq('email', email);
+  if(error) return toast('Status update failed: '+error.message,'err');
+  toast('Status → '+next, 'ok'); loadUsers();
+}
+async function extendExpiry(email, days){
+  const u = _allUsers.find(x => x.email === email); if(!u) return;
+  const base = u.license_expires_at ? new Date(u.license_expires_at+'T00:00:00Z') : new Date();
+  base.setUTCDate(base.getUTCDate() + days);
+  const iso = base.toISOString().slice(0,10);
+  const { error } = await sb.from('user_profiles').update({license_expires_at: iso, status:'active'}).eq('email', email);
+  if(error) return toast('Extend failed: '+error.message,'err');
+  toast('Expiry → '+iso, 'ok'); loadUsers();
+}
+async function resetHwids(email){
+  if(!confirm('Clear all registered HWIDs for '+email+'?')) return;
+  const { error } = await sb.from('user_profiles').update({hwids: []}).eq('email', email);
+  if(error) return toast('Reset failed: '+error.message,'err');
+  toast('Devices reset.', 'ok'); loadUsers();
+}
+async function deleteUser(email){
+  if(!confirm('Permanently delete user '+email+'? This cannot be undone.')) return;
+  const { error } = await sb.from('user_profiles').delete().eq('email', email);
+  if(error) return toast('Delete failed: '+error.message,'err');
+  toast('Deleted.', 'ok'); loadUsers();
+}
+async function openHwidsEditor(email){
+  const u = _allUsers.find(x => x.email === email); if(!u) return;
+  const list = Array.isArray(u.hwids) ? u.hwids : [];
+  const html = '<div style="min-width:380px">'
+    +'<div class="muted" style="margin-bottom:6px">Registered hardware IDs for <b>'+esc(email)+'</b>. One per line.</div>'
+    +'<textarea id="hw_box" style="width:100%;min-height:160px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px" class="mono">'
+    +esc(list.join('\n'))+'</textarea>'
+    +'<div class="muted" style="margin-top:6px">Device limit: <input id="hw_lim" type="number" min="0" value="'+(u.device_limit||0)+'" style="width:70px"></div>'
+    +'</div>';
+  const ok = await modal('Devices / HWIDs', html, 'Save');
+  if(!ok) return;
+  const hwids = $('#hw_box').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const lim = parseInt($('#hw_lim').value||'0',10);
+  const { error } = await sb.from('user_profiles').update({hwids, device_limit: lim}).eq('email', email);
+  if(error) return toast('Save failed: '+error.message,'err');
+  toast('HWIDs saved.', 'ok'); loadUsers();
+}
 async function openUserEditor(email){
   const u = _allUsers.find(x => x.email === email); if(!u) return;
   const roles = (await sb.from('license_roles').select('key,label').eq('active',true)).data || [];
@@ -619,9 +706,15 @@ async function openUserEditor(email){
         <select id="e_pl" style="width:100%">
           ${plans.map(p => `<option value="${p.key}" ${u.plan_key===p.key?'selected':''}>${esc(p.label)}</option>`).join('')}
         </select></div>
+      <div>Status<br>
+        <select id="e_st" style="width:100%">
+          ${['active','suspended','expired','revoked','pending'].map(s => `<option value="${s}" ${u.status===s?'selected':''}>${s}</option>`).join('')}
+        </select></div>
+      <div>License expires<br><input id="e_ex" type="date" style="width:100%" value="${esc(u.license_expires_at||'')}"></div>
+      <div>Device limit<br><input id="e_dl" type="number" min="0" style="width:100%" value="${u.device_limit||0}"></div>
       <div>Credit adjust (positive or negative)<br><input id="e_cr" type="number" placeholder="0" style="width:100%"></div>
       <div>Reason for credit adjust<br><input id="e_rs" placeholder="admin_adjust" style="width:100%"></div>
-    </div>`;
+    </div>`
   const ok = await modal('Edit ' + email, html, 'Save');
   if(!ok) return;
   const patch = {
@@ -629,6 +722,9 @@ async function openUserEditor(email){
     admin_role:  $('#e_ar').value,
     license_role:$('#e_lr').value || null,
     plan_key:    $('#e_pl').value,
+    status:      $('#e_st').value,
+    license_expires_at: $('#e_ex').value || null,
+    device_limit: parseInt($('#e_dl').value||'0', 10),
   };
   const cr = parseInt($('#e_cr').value||'0', 10);
   const reason = ($('#e_rs').value||'admin_adjust').trim();
