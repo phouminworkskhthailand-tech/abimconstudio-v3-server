@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AbimconStudio — BOQ for SketchUp</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="AbimconStudio — Bill of Quantities, costing, AI assistant and 3D BIM library for SketchUp. Start a 30-day free trial — license sent to your email instantly.">
+<style>
+:root{
+  --bg:#0b1220; --panel:#111a2e; --panel2:#0e1628; --line:#1f2a44;
+  --text:#e5edff; --muted:#8ea0c7;
+  --accent:#60a5fa; --accent2:#34d399;
+  --warn:#f59e0b; --danger:#ef4444;
+  --radius:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.55}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+img{max-width:100%;display:block}
+.hidden{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+section{padding:64px 0;border-top:1px solid var(--line)}
+section:first-of-type{border-top:none}
+
+/* ── Header ── */
+header{position:sticky;top:0;z-index:50;background:rgba(11,18,32,.85);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--line)}
+header .row{display:flex;align-items:center;justify-content:space-between;padding:14px 0}
+header .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:.3px}
+header .brand .dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 0 16px rgba(96,165,250,.6)}
+header nav{display:flex;gap:22px;font-size:14px}
+header nav a{color:var(--muted)}
+header nav a:hover{color:var(--text);text-decoration:none}
+header .cta{display:flex;gap:10px;align-items:center}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:#1c2a4d;color:#e5edff;font-weight:600;font-size:14px;cursor:pointer;text-decoration:none;transition:all .15s}
+.btn:hover{background:#22356b;border-color:#2d4385}
+.btn.primary{background:var(--accent);color:#0a1427;border-color:var(--accent)}
+.btn.primary:hover{background:#7ab2fb;border-color:#7ab2fb}
+.btn.success{background:var(--accent2);color:#042d22;border-color:var(--accent2)}
+.btn.success:hover{background:#52e4af;border-color:#52e4af}
+.btn.lg{padding:14px 22px;font-size:15px;border-radius:10px}
+.btn.ghost{background:transparent;border-color:var(--line);color:var(--text)}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Hero ── */
+.hero{padding:90px 0 64px}
+.hero h1{font-size:clamp(34px,5vw,58px);line-height:1.05;margin:0 0 20px;font-weight:800;letter-spacing:-.5px}
+.hero h1 .grad{background:linear-gradient(135deg,#60a5fa,#34d399);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p.lead{font-size:18px;color:var(--muted);max-width:680px;margin:0 0 28px}
+.hero .row{display:flex;gap:12px;flex-wrap:wrap}
+.hero .meta{margin-top:18px;color:var(--muted);font-size:13px;display:flex;gap:14px;flex-wrap:wrap}
+.hero .meta b{color:var(--text)}
+
+/* Hero figure */
+.hero-fig{margin-top:48px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:linear-gradient(180deg,#10182d 0%,#0b1220 100%);box-shadow:0 16px 80px rgba(0,0,0,.55)}
+.hero-fig .toolbar{height:30px;background:#0a1224;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 12px;gap:8px}
+.hero-fig .toolbar .d{width:11px;height:11px;border-radius:50%}
+.hero-fig .toolbar .d.r{background:#ef4444} .hero-fig .toolbar .d.y{background:#f59e0b} .hero-fig .toolbar .d.g{background:#34d399}
+.hero-fig .toolbar .t{margin-left:14px;color:var(--muted);font-size:12px}
+.hero-fig .body{padding:24px;color:#9aaccf;font-size:13px;line-height:1.7;font-family:ui-monospace,Menlo,monospace;min-height:260px;background:radial-gradient(900px 280px at 80% 0%,rgba(96,165,250,.10),transparent 60%)}
+.hero-fig .body .row{display:grid;grid-template-columns:36px 1.6fr .6fr .8fr 1fr 1fr;gap:10px;padding:6px 0;border-bottom:1px dashed #1a2a4d}
+.hero-fig .body .row.head{color:#c4d2ef;font-weight:700;border-bottom:1px solid var(--line)}
+.hero-fig .body .row .right{text-align:right}
+.hero-fig .body .row .pill{display:inline-block;background:#1a3b2e;color:#34d399;padding:1px 8px;border-radius:8px;font-size:10.5px;font-weight:700;letter-spacing:.4px}
+
+/* ── Features ── */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.f{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.f .ic{font-size:24px;margin-bottom:10px}
+.f h3{margin:0 0 8px;font-size:16px}
+.f p{margin:0;color:var(--muted);font-size:13.5px}
+
+/* ── Pricing ── */
+.plans{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.plan{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:10px;position:relative}
+.plan.recommended{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 12px 40px rgba(96,165,250,.18)}
+.plan .badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--accent);color:#0a1427;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:800;letter-spacing:.3px}
+.plan h4{margin:0;font-size:14px;color:#c4d2ef;letter-spacing:.4px;text-transform:uppercase}
+.plan .price{font-size:28px;font-weight:800;letter-spacing:-.5px}
+.plan .price small{font-size:12px;color:var(--muted);font-weight:500;margin-left:4px}
+.plan ul{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:6px}
+.plan ul li{list-style:'\2713  '}
+.plan .pick{margin-top:auto;width:100%}
+
+/* ── Checkout ── */
+.checkout-wrap{display:grid;grid-template-columns:1.3fr .9fr;gap:18px;align-items:start}
+.card{background:#fff;color:#1f2a3b;border-radius:14px;padding:22px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
+.card.dark{background:var(--panel);color:var(--text);border:1px solid var(--line)}
+.card h2{margin:0 0 14px;font-size:18px;color:#0c1a33}
+.card.dark h2{color:var(--text)}
+.banner{background:#fff;color:#1f2a3b;border-radius:12px;padding:14px 18px;margin-bottom:14px;font-size:13.5px}
+.banner b.red{color:var(--danger)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:600;color:#1f2a3b;margin-bottom:6px}
+.field label .req{color:var(--danger);margin-left:2px}
+.field input{width:100%;padding:10px 12px;border:1px solid #d6dbe6;border-radius:8px;font-size:14px;background:#fafbfd;color:#1f2a3b}
+.field input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(96,165,250,.20)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.checkbox{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;color:#3a4860;margin-top:6px}
+.checkbox input{accent-color:var(--accent);margin-top:3px}
+
+/* Order summary card */
+.summary{display:flex;flex-direction:column;gap:14px}
+.summary .head{display:flex;justify-content:space-between;align-items:center}
+.summary .head h2{margin:0}
+.summary .head a{font-size:13px;color:var(--accent)}
+.summary hr{border:none;border-top:1px solid #e2e6ee;margin:6px 0}
+.summary .item{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.summary .item .name{font-size:14px;color:#0c1a33;font-weight:600}
+.summary .item .desc{font-size:12.5px;color:#6b7892;margin-top:3px}
+.summary .item .price{font-size:14px;font-weight:600;color:#0c1a33;white-space:nowrap}
+.summary .coupon{display:flex;gap:8px}
+.summary .coupon input{flex:1;padding:10px 12px;border:1px solid #d6dbe6;border-radius:8px;font-size:14px;background:#fafbfd;color:#1f2a3b}
+.summary .coupon button{padding:10px 16px;background:#22c55e;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer}
+.summary .totals{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.summary .totals .sub{font-size:13.5px;color:#6b7892}
+.summary .totals .tot{font-size:22px;font-weight:800;color:#0c1a33}
+.summary .totals .tot b{font-size:24px}
+
+.submit-row{margin-top:18px}
+.submit-row .btn{width:100%;padding:18px;font-size:16px}
+
+/* Success state */
+.success-card{background:linear-gradient(160deg,#0f2030 0%,#0b1220 100%);border:1px solid var(--accent);border-radius:14px;padding:32px;box-shadow:0 0 0 1px var(--accent),0 16px 80px rgba(52,211,153,.18)}
+.success-card h2{margin:0 0 8px;font-size:24px;color:var(--accent2)}
+.success-card .lic{margin:18px 0;background:#0a1224;border:1px dashed var(--accent2);border-radius:10px;padding:18px;font-family:ui-monospace,Menlo,monospace;font-size:18px;font-weight:700;color:var(--accent2);text-align:center;letter-spacing:1.5px}
+.success-card .meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px;font-size:13px;color:var(--muted)}
+.success-card .meta b{color:var(--text);display:block;font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:#c4d2ef}
+
+/* ── Footer ── */
+footer{padding:30px 0 60px;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--line)}
+
+/* ── Toast ── */
+#toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px 16px;border-radius:8px;z-index:200;max-width:340px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+#toast.err{border-left-color:var(--danger)}
+#toast.ok{border-left-color:var(--accent2)}
+
+/* ── Responsive ── */
+@media (max-width:1000px){
+  .features{grid-template-columns:1fr 1fr}
+  .plans{grid-template-columns:repeat(3,1fr)}
+  .checkout-wrap{grid-template-columns:1fr}
+}
+@media (max-width:680px){
+  .features{grid-template-columns:1fr}
+  .plans{grid-template-columns:1fr}
+  .field-row{grid-template-columns:1fr}
+  .hero-fig .body .row{grid-template-columns:1fr 1fr;font-size:12px}
+  .hero-fig .body .row .col-3,.hero-fig .body .row .col-4,.hero-fig .body .row .col-5{display:none}
+  header nav{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="wrap">
+    <div class="row">
+      <div class="brand"><span class="dot"></span> AbimconStudio</div>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#download">Download</a>
+        <a href="#checkout">Get License</a>
+      </nav>
+      <div class="cta">
+        <a class="btn ghost" href="#download">Download</a>
+        <a class="btn primary" href="#checkout">Start free trial</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <h1>BOQ for SketchUp,<br><span class="grad">done in minutes</span>.</h1>
+    <p class="lead">AbimconStudio turns your SketchUp model into a Bill of Quantities, cost report, and AI-assisted estimate. 3D BIM library, multilingual catalogs, R2-hosted models, cloud sync &mdash; all from inside SketchUp.</p>
+    <div class="row">
+      <a class="btn primary lg" href="#checkout">Start 30-day free trial</a>
+      <a class="btn ghost lg" href="#download">Download .rbz</a>
+    </div>
+    <div class="meta">
+      <span><b>240</b> credits free on signup</span>
+      <span>&middot;</span>
+      <span><b>No credit card</b> for trial</span>
+      <span>&middot;</span>
+      <span>Works on <b>Windows + macOS</b></span>
+      <span>&middot;</span>
+      <span>SketchUp <b>2020+</b></span>
+    </div>
+
+    <div class="hero-fig">
+      <div class="toolbar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="t">AbimconStudio &mdash; Report</span></div>
+      <div class="body">
+        <div class="row head">
+          <span>#</span><span>Item</span><span class="right">Qty</span><span class="right">Unit</span><span class="right">Mat. price</span><span class="right">Total</span>
+        </div>
+        <div class="row"><span>1</span><span>Concrete wall 200mm</span><span class="right">12.5</span><span class="right">m&sup3;</span><span class="right">2,500</span><span class="right">31,250</span></div>
+        <div class="row"><span>2</span><span>Steel rebar DB16</span><span class="right">348</span><span class="right">kg</span><span class="right">42</span><span class="right">14,616</span></div>
+        <div class="row"><span>3</span><span>Plywood form 18mm</span><span class="right">62</span><span class="right">m&sup2;</span><span class="right">320</span><span class="right">19,840</span></div>
+        <div class="row"><span>4</span><span>Window hardware <span class="pill">imported</span></span><span class="right">8</span><span class="right">E/A</span><span class="right">1,200</span><span class="right">9,600</span></div>
+        <div class="row"><span>5</span><span>Lift core (3D BIM)</span><span class="right">1</span><span class="right">E/A</span><span class="right">86,000</span><span class="right">86,000</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <h2 style="margin:0 0 26px;font-size:28px">Everything you need to estimate from a SketchUp model.</h2>
+    <div class="features">
+      <div class="f"><div class="ic">&#x1F4D0;</div><h3>BOQ Input</h3><p>Tag any component, layer or material with a 52-column BOQ schema. Per-role units, factors, wasted % and currency are all editable.</p></div>
+      <div class="f"><div class="ic">&#x1F4CA;</div><h3>Figma-style Report</h3><p>Drag-and-drop materials, cost codes and labour onto rows. Page-break preview. Export to Excel, PDF, or save to cloud.</p></div>
+      <div class="f"><div class="ic">&#x1F916;</div><h3>AI Assistant</h3><p>Ask the BOQ AI about your model: cost breakdowns, line-item descriptions, BIM auto-summary. Credit-metered, never blocks UX.</p></div>
+      <div class="f"><div class="ic">&#x1F9CA;</div><h3>3D BIM Library</h3><p>Pick from a Cloudflare R2 catalog of vetted SKP families. One-click attach &mdash; the model imports cleanly with quantities preserved.</p></div>
+      <div class="f"><div class="ic">&#x2601;&#xFE0F;</div><h3>Cloud Sync</h3><p>Save the whole report (tabs, margins, items) to your account. Reload from any machine; multiple device limit per license.</p></div>
+      <div class="f"><div class="ic">&#x1F30D;</div><h3>Multilingual</h3><p>Link items across languages. Switch a project from English to Thai or Vietnamese without re-modeling. Region/standard fields built-in.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing">
+  <div class="wrap">
+    <h2 style="margin:0 0 8px;font-size:28px">Simple pricing. AI credits included.</h2>
+    <p style="color:var(--muted);max-width:640px;margin:0 0 26px">Pay-as-you-go credit system. Free plan gives you 240 credits once on signup. PRO plans refresh monthly &mdash; cancel any time.</p>
+    <div class="plans">
+      <div class="plan">
+        <h4>Free</h4>
+        <div class="price">$0</div>
+        <p style="color:var(--muted);font-size:13px;margin:0">240 credits once on signup. Best for trying it out.</p>
+        <ul>
+          <li>240 one-time AI credits</li>
+          <li>Unlimited BOQ rows</li>
+          <li>Up to 1,000 model downloads</li>
+          <li>Excel + PDF export</li>
+        </ul>
+        <button class="btn pick" data-plan="free">Get Free</button>
+      </div>
+      <div class="plan">
+        <h4>Trial</h4>
+        <div class="price">$0</div>
+        <p style="color:var(--muted);font-size:13px;margin:0">30-day full-feature trial.</p>
+        <ul>
+          <li>500 AI credits / month</li>
+          <li>All PRO features unlocked</li>
+          <li>Up to 1,000 downloads / mo</li>
+          <li>Cloud sync</li>
+        </ul>
+        <button class="btn primary pick" data-plan="trial">Start Trial</button>
+      </div>
+      <div class="plan recommended">
+        <span class="badge">Most popular</span>
+        <h4>PRO 9.9</h4>
+        <div class="price">$9.90<small>/ month</small></div>
+        <p style="color:var(--muted);font-size:13px;margin:0">Solo estimator / freelance.</p>
+        <ul>
+          <li>3,000 AI credits / month</li>
+          <li>10,000 downloads / month</li>
+          <li>Cloud sync &amp; multilingual</li>
+          <li>3D BIM library</li>
+        </ul>
+        <button class="btn primary pick" data-plan="pro_9_9">Get PRO 9.9</button>
+      </div>
+      <div class="plan">
+        <h4>PRO 39.9</h4>
+        <div class="price">$39.90<small>/ month</small></div>
+        <p style="color:var(--muted);font-size:13px;margin:0">Small studio / 2-5 users.</p>
+        <ul>
+          <li>9,000 AI credits / month</li>
+          <li>10,000 downloads / month</li>
+          <li>All PRO 9.9 features</li>
+          <li>Priority email support</li>
+        </ul>
+        <button class="btn pick" data-plan="pro_39_9">Get PRO 39.9</button>
+      </div>
+      <div class="plan">
+        <h4>PRO 99.9</h4>
+        <div class="price">$99.90<small>/ month</small></div>
+        <p style="color:var(--muted);font-size:13px;margin:0">Firm / unlimited usage.</p>
+        <ul>
+          <li>30,000 AI credits / month</li>
+          <li>Unlimited downloads</li>
+          <li>Pro Max role (no caps)</li>
+          <li>Custom onboarding</li>
+        </ul>
+        <button class="btn pick" data-plan="pro_99_9">Get PRO 99.9</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNLOAD -->
+<section id="download">
+  <div class="wrap">
+    <div style="display:flex;align-items:center;gap:30px;flex-wrap:wrap;justify-content:space-between">
+      <div style="flex:1;min-width:280px">
+        <h2 style="margin:0 0 10px;font-size:26px">Download AbimconStudio for SketchUp</h2>
+        <p style="color:var(--muted);max-width:520px;margin:0">Latest build &mdash; H-15.37. Drag the .rbz onto SketchUp's Extension Manager. After installing, open AbimconStudio &rarr; sign in with your license key.</p>
+        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn primary lg" href="/download/abimconstudio_latest.rbz">&#x2B07; Download .rbz (H-15.37)</a>
+          <a class="btn ghost" href="https://help.sketchup.com/en/sketchup/installing-extensions" target="_blank" rel="noopener">Install instructions</a>
+        </div>
+      </div>
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;min-width:260px">
+        <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Requires</div>
+        <div>SketchUp 2020 &mdash; 2026</div>
+        <div style="color:var(--muted);font-size:13px;margin-top:4px">Windows 10/11 &middot; macOS 12+</div>
+        <div style="margin-top:14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Internet</div>
+        <div style="font-size:13px;color:var(--muted)">Required for cloud sync, AI, and 3D BIM library.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CHECKOUT -->
+<section id="checkout" style="background:#f4f5f8;color:#1f2a3b">
+  <div class="wrap">
+
+    <!-- Default state: form -->
+    <div id="checkoutFormView">
+      <div class="banner">
+        You must enter a <b class="red">valid email</b> address below. Your license will be emailed to you.
+      </div>
+      <div class="checkout-wrap">
+        <form class="card" id="orderForm" autocomplete="on">
+          <h2>Customer</h2>
+          <div class="field-row">
+            <div class="field">
+              <label>First Name<span class="req">*</span></label>
+              <input id="firstName" required placeholder="First Name" autocomplete="given-name">
+            </div>
+            <div class="field">
+              <label>Last Name<span class="req">*</span></label>
+              <input id="lastName" required placeholder="Last Name" autocomplete="family-name">
+            </div>
+          </div>
+          <div class="field">
+            <label>Email<span class="req">*</span></label>
+            <input id="email" type="email" required placeholder="you@example.com" autocomplete="email">
+          </div>
+          <div class="field">
+            <label>Email Retype<span class="req">*</span></label>
+            <input id="emailRetype" type="email" required placeholder="Retype your email" autocomplete="off">
+          </div>
+          <label class="checkbox">
+            <input type="checkbox" id="newsletter" checked>
+            <span>It&rsquo;s OK to send me occasional news and special offers</span>
+          </label>
+          <div class="submit-row">
+            <button class="btn primary" id="submitBtn" type="submit">Submit Order</button>
+          </div>
+        </form>
+
+        <div class="card summary">
+          <div class="head"><h2>Order Summary</h2><a href="#pricing" id="editPlan">Edit</a></div>
+          <hr>
+          <div class="item">
+            <div>
+              <div class="name" id="planName">Trial License</div>
+              <div class="desc" id="planDesc">30 day trial license for AbimconStudio.</div>
+            </div>
+            <div class="price" id="planPrice">$0.00</div>
+          </div>
+          <hr>
+          <div class="coupon">
+            <input id="coupon" placeholder="Coupon">
+            <button type="button" id="applyCoupon">Apply</button>
+          </div>
+          <hr>
+          <div class="totals">
+            <div class="sub">Subtotal: <span id="subtotalLbl">$0.00</span></div>
+            <div class="tot">Total: <b id="totalLbl">$0.00</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success state -->
+    <div id="checkoutSuccessView" class="hidden">
+      <div class="success-card">
+        <h2>&#x2713; Your license is ready &mdash; check your email.</h2>
+        <p style="color:var(--muted);margin:0 0 16px">We&rsquo;ve emailed your license key to <b id="okEmail" style="color:var(--text)"></b>. If it doesn&rsquo;t arrive in 2 minutes, check your spam folder. Your license key is also shown below.</p>
+        <div class="lic" id="okLicense">ABIM-XXXX-XXXX-XXXX</div>
+        <div class="meta">
+          <div><b>Plan</b><span id="okPlan">Trial</span></div>
+          <div><b>Expires</b><span id="okExpires">&mdash;</span></div>
+          <div><b>Order code</b><span id="okOrderCode">&mdash;</span></div>
+          <div><b>Status</b><span style="color:var(--accent2)">Active</span></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap">
+          <a class="btn primary" href="/download/abimconstudio_latest.rbz">&#x2B07; Download .rbz</a>
+          <a class="btn ghost" href="#download">Install instructions</a>
+          <button type="button" class="btn ghost" id="copyLicenseBtn">Copy License</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>&copy; 2026 AbimconStudio &middot; <a href="/admin">Admin</a> &middot; <a href="mailto:hello@abimconstudio.com">hello@abimconstudio.com</a></div>
+    <div style="margin-top:6px;font-size:12px">Made with care in SE Asia. SketchUp is a trademark of Trimble Inc.</div>
+  </div>
+</footer>
+
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+  const SUPABASE_URL  = 'https://zlpkqyxenzexbfnnvaor.supabase.co';
+  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpscGtxeXhlbnpleGJmbm52YW9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NTYxNDksImV4cCI6MjA5MDIzMjE0OX0.lzgMLWf6aGE5xMAmm8d5wL6vnL5Bw_FlVES30L541aA';
+
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  const PLAN_INFO = {
+    free:    { label:'Free License',    price:0,     desc:'Free plan with 240 one-time AI credits.' },
+    trial:   { label:'Trial License',   price:0,     desc:'30 day full-feature trial license.' },
+    pro_9_9: { label:'PRO 9.9 License', price:9.90,  desc:'Monthly PRO plan: 3,000 AI credits.' },
+    pro_39_9:{ label:'PRO 39.9 License',price:39.90, desc:'Monthly PRO plan: 9,000 AI credits.' },
+    pro_99_9:{ label:'PRO 99.9 License',price:99.90, desc:'Monthly PRO plan: 30,000 AI credits.' },
+  };
+
+  let currentPlan = (location.hash.replace('#','') || 'trial');
+  if(!PLAN_INFO[currentPlan]) currentPlan = 'trial';
+  refreshSummary();
+
+  // Pricing card "Get..." buttons
+  document.querySelectorAll('.plan .pick').forEach(b => {
+    b.addEventListener('click', () => {
+      currentPlan = b.dataset.plan || 'trial';
+      refreshSummary();
+      document.getElementById('checkout').scrollIntoView({behavior:'smooth'});
+    });
+  });
+
+  function refreshSummary(){
+    const p = PLAN_INFO[currentPlan];
+    document.getElementById('planName').textContent  = p.label;
+    document.getElementById('planDesc').textContent  = p.desc;
+    document.getElementById('planPrice').textContent = '$'+p.price.toFixed(2);
+    document.getElementById('subtotalLbl').textContent = '$'+p.price.toFixed(2);
+    document.getElementById('totalLbl').textContent  = '$'+p.price.toFixed(2);
+  }
+
+  // Coupon stub (no-op for trial; admins can later add a coupons table)
+  document.getElementById('applyCoupon').addEventListener('click', () => {
+    toast('Coupon system not enabled yet.', 'err');
+  });
+
+  // ── Submit Order ──
+  document.getElementById('orderForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const fn  = document.getElementById('firstName').value.trim();
+    const ln  = document.getElementById('lastName').value.trim();
+    const em  = document.getElementById('email').value.trim().toLowerCase();
+    const er  = document.getElementById('emailRetype').value.trim().toLowerCase();
+    const news= document.getElementById('newsletter').checked;
+    const cpn = document.getElementById('coupon').value.trim();
+
+    if(!fn || !ln) return toast('Please fill in your first and last name.', 'err');
+    if(!em || !/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(em)) return toast('Please enter a valid email.', 'err');
+    if(em !== er)  return toast('Email and Retype Email do not match.', 'err');
+
+    btn.disabled = true; btn.textContent = 'Processing\u2026';
+
+    try {
+      const { data, error } = await sb.rpc('submit_order', {
+        p_email:      em,
+        p_first_name: fn,
+        p_last_name:  ln,
+        p_plan_key:   currentPlan,
+        p_newsletter: news,
+        p_coupon:     cpn,
+        p_user_agent: navigator.userAgent.substring(0,300),
+        p_ip_hash:    ''
+      });
+      if(error) throw error;
+      if(!data || data.ok !== true) throw new Error(data && data.error ? data.error : 'submit_failed');
+
+      // Success — render the success view immediately. Email is fired in parallel.
+      showSuccess(data);
+
+      // Trigger the email send in the background. Edge function may not be
+      // deployed yet — that's OK, the user already has the license on screen.
+      fetch(SUPABASE_URL + '/functions/v1/send-license-email', {
+        method:  'POST',
+        headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+SUPABASE_ANON },
+        body:    JSON.stringify({ order_id: data.order_id })
+      }).catch(()=>{}); // best-effort
+
+    } catch(e) {
+      console.error(e);
+      const msg = (e && e.message) || 'Something went wrong. Please try again.';
+      toast('Order failed: '+msg, 'err');
+      btn.disabled = false; btn.textContent = 'Submit Order';
+    }
+  });
+
+  function showSuccess(d){
+    document.getElementById('checkoutFormView').classList.add('hidden');
+    document.getElementById('checkoutSuccessView').classList.remove('hidden');
+    document.getElementById('okEmail').textContent     = d.email || '';
+    document.getElementById('okLicense').textContent   = d.license_key || '';
+    document.getElementById('okPlan').textContent      = (PLAN_INFO[d.plan_key]||{}).label || d.plan_key || '';
+    document.getElementById('okExpires').textContent   = d.expires_at || 'No expiry';
+    document.getElementById('okOrderCode').textContent = d.order_code || '';
+    location.hash = 'order-success';
+  }
+
+  document.getElementById('copyLicenseBtn').addEventListener('click', async () => {
+    const k = document.getElementById('okLicense').textContent;
+    try { await navigator.clipboard.writeText(k); toast('License copied.', 'ok'); }
+    catch(e){ toast('Copy failed.', 'err'); }
+  });
+
+  function toast(msg, kind){
+    let t = document.getElementById('toast');
+    if(!t){ t = document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
+    t.className = kind || '';
+    t.textContent = msg;
+    clearTimeout(window._tt);
+    window._tt = setTimeout(() => { t.remove(); }, 4500);
+  }
+</script>
+
+</body>
+</html>
