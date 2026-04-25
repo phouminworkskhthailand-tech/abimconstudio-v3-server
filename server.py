@@ -614,6 +614,10 @@ _admin_path = os.path.join(os.path.dirname(__file__), "admin.html")
 ADMIN_HTML  = open(_admin_path).read() if os.path.exists(_admin_path) \
               else "<h1>Admin panel not found</h1>"
 
+_index_path = os.path.join(os.path.dirname(__file__), "index.html")
+INDEX_HTML  = open(_index_path).read() if os.path.exists(_index_path) \
+              else ADMIN_HTML
+
 # ââ HTTP Handler ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 class Handler(BaseHTTPRequestHandler):
 
@@ -689,7 +693,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path.rstrip("/") or "/"
 
-        if   path == "/":                         self._html(200, ADMIN_HTML)
+        if   path == "/":                         self._html(200, INDEX_HTML)
+        elif path in ("/admin", "/admin.html"):   self._html(200, ADMIN_HTML)
         elif path == "/health":                   self._json(200, {"status": "ok"})
         elif path == "/api/challenge":
             nonce = _nc_create()
